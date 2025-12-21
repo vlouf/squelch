@@ -11,6 +11,7 @@ from textual.reactive import reactive
 from ..config import config
 from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor, Summarizer
 from ..export import MarkdownExporter
+from .options import OptionsScreen
 
 
 class TranscriptView(RichLog):
@@ -423,7 +424,99 @@ class SquelchApp(App):
 
     def action_show_options(self) -> None:
         """Show options menu."""
-        self.notify("Options coming in Phase 5!", title="Options")
+        # Only allow options when not recording
+        if self.session.is_recording:
+            self.notify("Stop recording to change options", title="Options")
+            return
+
+        # Get current values
+        audio_devices = OptionsScreen.get_audio_devices()
+
+        # Get LLM models
+        llm_models = []
+        current_llm = None
+        if self.llm:
+            llm_models = [(m, m) for m in self.llm.available_models]
+            current_llm = self.llm.model
+
+        # Current audio device
+        current_audio = config.audio.device_name or "__default__"
+
+        # Store previous values to detect changes
+        self._prev_audio_device = config.audio.device_name
+        self._prev_fast_model = config.whisper.fast_model
+        self._prev_slow_model = config.whisper.slow_model
+        self._prev_llm_model = self.llm.model if self.llm else None
+
+        # Push the options screen
+        self.push_screen(
+            OptionsScreen(
+                audio_devices=audio_devices,
+                llm_models=llm_models,
+                current_audio_device=current_audio,
+                current_llm_model=current_llm,
+                current_fast_whisper=config.whisper.fast_model,
+                current_slow_whisper=config.whisper.slow_model,
+            ),
+            self.on_options_closed,
+        )
+
+    def on_options_closed(self, saved: bool) -> None:
+        """Called when options screen is closed."""
+        if not saved:
+            return
+
+        changes_made = False
+
+        # Check LLM model change
+        if self.llm and config.llm.model and config.llm.model != self._prev_llm_model:
+            self.llm.set_model(config.llm.model)
+            self.log_event(f"LLM: {config.llm.model}")
+            changes_made = True
+
+        # Check Whisper model changes
+        whisper_changed = (
+            config.whisper.fast_model != self._prev_fast_model or
+            config.whisper.slow_model != self._prev_slow_model
+        )
+
+        if whisper_changed:
+            self.log_event("Reloading Whisper models...")
+
+            # Stop old workers
+            if self.fast_transcriber:
+                self.fast_transcriber.stop()
+            if self.slow_transcriber:
+                self.slow_transcriber.stop()
+
+            # Create and start new workers
+            self.fast_transcriber = TranscriberWorker(
+                model_size=config.whisper.fast_model,
+                config=config.whisper,
+                name="fast"
+            )
+            self.slow_transcriber = TranscriberWorker(
+                model_size=config.whisper.slow_model,
+                config=config.whisper,
+                name="slow"
+            )
+            self.fast_transcriber.start()
+            self.slow_transcriber.start()
+
+            self.log_event(f"  Fast: {config.whisper.fast_model}")
+            self.log_event(f"  Slow: {config.whisper.slow_model}")
+            changes_made = True
+
+        # Check audio device change
+        if config.audio.device_name != self._prev_audio_device:
+            self.log_event(f"Audio: {config.audio.device_name or 'Default'}")
+            changes_made = True
+
+        if changes_made:
+            self.log_event("✓ Settings applied")
+            self.notify("Settings applied", title="Options")
+        else:
+            self.notify("No changes", title="Options")
 
     def action_quit(self) -> None:
         """Quit the application."""
