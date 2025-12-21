@@ -93,7 +93,7 @@ class SquelchApp(App):
     """Main Squelch application."""
 
     TITLE = "Squelch"
-    # ENABLE_COMMAND_PALETTE = False  # Disable to save footer space
+    ENABLE_COMMAND_PALETTE = False  # Disable to save footer space
     CSS = """
     #main-container {
         height: 1fr;
@@ -187,7 +187,8 @@ class SquelchApp(App):
     def __init__(self):
         super().__init__()
         self.session = Session()
-        self.transcriber: TranscriberWorker | None = None
+        self.fast_transcriber: TranscriberWorker | None = None
+        self.slow_transcriber: TranscriberWorker | None = None
         self.audio: AudioCapture | None = None
         self.llm: LLMProcessor | None = None
 
@@ -213,10 +214,23 @@ class SquelchApp(App):
         self.log_event("Squelch ready")
         self.log_event(f"Fast: {config.audio.fast_chunk_duration}s | Slow: {config.audio.slow_chunk_duration}s")
 
-        # Initialize transcriber
-        self.log_event(f"Loading Whisper '{config.whisper.model_size}'...")
-        self.transcriber = TranscriberWorker(config.whisper)
-        self.transcriber.start()
+        # Initialize transcribers (two separate workers)
+        self.log_event(f"Loading Whisper models...")
+        self.log_event(f"  Fast: '{config.whisper.fast_model}'")
+        self.log_event(f"  Slow: '{config.whisper.slow_model}'")
+
+        self.fast_transcriber = TranscriberWorker(
+            model_size=config.whisper.fast_model,
+            config=config.whisper,
+            name="fast"
+        )
+        self.slow_transcriber = TranscriberWorker(
+            model_size=config.whisper.slow_model,
+            config=config.whisper,
+            name="slow"
+        )
+        self.fast_transcriber.start()
+        self.slow_transcriber.start()
         self.log_event("Whisper ready")
 
         # Initialize LLM processor
@@ -267,27 +281,39 @@ class SquelchApp(App):
         type_label = "FAST" if chunk_type.value == "fast" else "SLOW"
         self.log_event(f"{type_label} {duration:.1f}s")
 
-        if self.transcriber:
-            self.transcriber.submit(audio_data, start_time, end_time, chunk_type)
+        # Route to appropriate transcriber
+        if chunk_type == ChunkType.FAST and self.fast_transcriber:
+            self.fast_transcriber.submit(audio_data, start_time, end_time, chunk_type)
+        elif chunk_type == ChunkType.SLOW and self.slow_transcriber:
+            self.slow_transcriber.submit(audio_data, start_time, end_time, chunk_type)
 
     def poll_transcriptions(self) -> None:
-        """Poll for transcription results."""
-        if not self.transcriber:
-            return
+        """Poll for transcription results from both workers."""
+        # Check fast transcriber
+        if self.fast_transcriber:
+            result = self.fast_transcriber.get_result(timeout=None)
+            if result:
+                self._handle_transcription_result(result)
 
-        result = self.transcriber.get_result(timeout=None)
-        if result:
-            is_fast = result.chunk_type.value == "fast"
-            quality = TranscriptQuality.FAST if is_fast else TranscriptQuality.REFINED
-            self.session.add_segment(result.text, result.start_time, result.end_time, quality)
+        # Check slow transcriber
+        if self.slow_transcriber:
+            result = self.slow_transcriber.get_result(timeout=None)
+            if result:
+                self._handle_transcription_result(result)
 
-            # Format timestamp
-            minutes = int(result.start_time // 60)
-            seconds = int(result.start_time % 60)
-            timestamp = f"[{minutes:02d}:{seconds:02d}]"
+    def _handle_transcription_result(self, result) -> None:
+        """Process a transcription result."""
+        is_fast = result.chunk_type.value == "fast"
+        quality = TranscriptQuality.FAST if is_fast else TranscriptQuality.REFINED
+        self.session.add_segment(result.text, result.start_time, result.end_time, quality)
 
-            if result.text:
-                self.add_transcript(timestamp, result.text, refined=not is_fast)
+        # Format timestamp
+        minutes = int(result.start_time // 60)
+        seconds = int(result.start_time % 60)
+        timestamp = f"[{minutes:02d}:{seconds:02d}]"
+
+        if result.text:
+            self.add_transcript(timestamp, result.text, refined=not is_fast)
 
     def action_toggle_recording(self) -> None:
         """Toggle recording on/off."""
@@ -403,8 +429,10 @@ class SquelchApp(App):
     def action_quit(self) -> None:
         """Quit the application."""
         self.stop_recording()
-        if self.transcriber:
-            self.transcriber.stop()
+        if self.fast_transcriber:
+            self.fast_transcriber.stop()
+        if self.slow_transcriber:
+            self.slow_transcriber.stop()
         self.exit()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:

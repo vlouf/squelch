@@ -40,22 +40,39 @@ async def main():
     # Create session
     session = Session()
 
-    # Create transcriber worker
-    print(f"[INFO] Loading Whisper model '{config.whisper.model_size}'...")
-    transcriber = TranscriberWorker(config.whisper)
-    transcriber.start()
-    print("[INFO] Whisper model loaded.")
+    # Create two transcriber workers (fast + slow models)
+    print(f"[INFO] Loading Whisper models...")
+    print(f"[INFO]   Fast: '{config.whisper.fast_model}'")
+    print(f"[INFO]   Slow: '{config.whisper.slow_model}'")
+
+    fast_transcriber = TranscriberWorker(
+        model_size=config.whisper.fast_model,
+        config=config.whisper,
+        name="fast"
+    )
+    slow_transcriber = TranscriberWorker(
+        model_size=config.whisper.slow_model,
+        config=config.whisper,
+        name="slow"
+    )
+    fast_transcriber.start()
+    slow_transcriber.start()
+    print("[INFO] Whisper models loaded.")
     print()
 
     # Callback when audio chunk is ready
     def on_chunk_ready(audio, start_time, end_time, chunk_type: ChunkType):
         session.audio_chunks_captured += 1
         duration = end_time - start_time
-        # Debug: print actual values
         is_fast = chunk_type.value == "fast"
         type_label = "FAST" if is_fast else "SLOW"
         print(f"[AUDIO:{type_label}] {duration:.1f}s captured, sending to Whisper...")
-        transcriber.submit(audio, start_time, end_time, chunk_type)
+
+        # Route to appropriate transcriber
+        if chunk_type == ChunkType.FAST:
+            fast_transcriber.submit(audio, start_time, end_time, chunk_type)
+        else:
+            slow_transcriber.submit(audio, start_time, end_time, chunk_type)
 
     # Create audio capture
     audio = AudioCapture(config.audio, on_chunk_ready=on_chunk_ready)
@@ -73,30 +90,37 @@ async def main():
     session.is_recording = True
     audio.start()
 
+    def handle_result(result):
+        """Process a transcription result."""
+        is_fast = result.chunk_type.value == "fast"
+        quality = TranscriptQuality.FAST if is_fast else TranscriptQuality.REFINED
+        session.add_segment(result.text, result.start_time, result.end_time, quality)
+
+        # Format timestamp
+        minutes = int(result.start_time // 60)
+        seconds = int(result.start_time % 60)
+        timestamp = f"[{minutes:02d}:{seconds:02d}]"
+
+        # Mark refined transcripts
+        quality_marker = "" if quality == TranscriptQuality.FAST else " ✓"
+
+        # Print the transcribed text
+        if result.text:
+            print(f"{timestamp}{quality_marker} {result.text}")
+        else:
+            print(f"{timestamp} (silence)")
+
     # Main loop - poll for transcription results
     try:
         while True:
-            # Check for transcription results
-            result = transcriber.get_result(timeout=None)
+            # Check both transcribers for results
+            result = fast_transcriber.get_result(timeout=None)
             if result:
-                # Use .value comparison since enum was pickled across process boundary
-                is_fast = result.chunk_type.value == "fast"
-                quality = TranscriptQuality.FAST if is_fast else TranscriptQuality.REFINED
-                session.add_segment(result.text, result.start_time, result.end_time, quality)
+                handle_result(result)
 
-                # Format timestamp
-                minutes = int(result.start_time // 60)
-                seconds = int(result.start_time % 60)
-                timestamp = f"[{minutes:02d}:{seconds:02d}]"
-
-                # Mark refined transcripts
-                quality_marker = "" if quality == TranscriptQuality.FAST else " ✓"
-
-                # Print the transcribed text
-                if result.text:
-                    print(f"{timestamp}{quality_marker} {result.text}")
-                else:
-                    print(f"{timestamp} (silence)")
+            result = slow_transcriber.get_result(timeout=None)
+            if result:
+                handle_result(result)
 
             await asyncio.sleep(0.1)
 
@@ -113,9 +137,14 @@ async def main():
             print(f"[WARN] Error stopping audio: {e}")
 
         try:
-            transcriber.stop()
+            fast_transcriber.stop()
         except Exception as e:
-            print(f"[WARN] Error stopping transcriber: {e}")
+            print(f"[WARN] Error stopping fast transcriber: {e}")
+
+        try:
+            slow_transcriber.stop()
+        except Exception as e:
+            print(f"[WARN] Error stopping slow transcriber: {e}")
 
         # Skip audio.terminate() - PyAudio cleanup can hang on Windows
         # The OS will clean up when the process exits

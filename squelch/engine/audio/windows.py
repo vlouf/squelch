@@ -2,25 +2,19 @@
 Audio capture using PyAudioWPatch for WASAPI loopback on Windows.
 """
 
+import sys
 import threading
 import numpy as np
-import pyaudiowpatch as pyaudio
 from typing import Callable
-from enum import Enum
 
-from ..config import AudioConfig
-
-
-class ChunkType(Enum):
-    """Type of audio chunk for dual-pass transcription."""
-
-    FAST = "fast"
-    SLOW = "slow"
+from ...config import AudioConfig
+from ..types import ChunkType
+from .base import AudioCaptureBase, ChunkCallback
 
 
-class AudioCapture:
+class WindowsAudioCapture(AudioCaptureBase):
     """
-    Captures audio from a WASAPI loopback device.
+    Captures audio from a WASAPI loopback device on Windows.
 
     Runs in a dedicated thread to ensure isochronous capture
     without dropping samples.
@@ -30,18 +24,11 @@ class AudioCapture:
     - Slow chunks: emitted less frequently for higher quality transcription
     """
 
-    def __init__(
-        self,
-        config: AudioConfig,
-        on_chunk_ready: Callable[[np.ndarray, float, float, ChunkType], None] | None = None,
-    ):
-        """
-        Args:
-            config: Audio configuration
-            on_chunk_ready: Callback when a chunk is ready (audio_data, start_time, end_time, chunk_type)
-        """
-        self.config = config
-        self.on_chunk_ready = on_chunk_ready
+    def __init__(self, config: AudioConfig, on_chunk_ready: ChunkCallback | None = None):
+        super().__init__(config, on_chunk_ready)
+
+        import pyaudiowpatch as pyaudio
+        self._pyaudio_module = pyaudio
 
         self._pyaudio = pyaudio.PyAudio()
         self._stream = None
@@ -70,6 +57,7 @@ class AudioCapture:
 
     def _find_device(self) -> dict:
         """Find the appropriate WASAPI loopback device."""
+        pyaudio = self._pyaudio_module
 
         # If a specific device name is requested, search for it
         if self.config.device_name:
@@ -104,33 +92,46 @@ class AudioCapture:
                     return info
 
         raise RuntimeError(
-            "Could not find a WASAPI loopback device. " "Make sure you have an audio output device active."
+            "Could not find a WASAPI loopback device. "
+            "Make sure you have an audio output device active."
         )
 
-    @classmethod
-    def list_devices(cls) -> list[dict]:
+    @staticmethod
+    def list_devices() -> list[dict]:
         """List all available audio devices, highlighting loopback devices."""
+        import pyaudiowpatch as pyaudio
         p = pyaudio.PyAudio()
         devices = []
 
         for i in range(p.get_device_count()):
             info = p.get_device_info_by_index(i)
-            devices.append(
-                {
-                    "index": i,
-                    "name": info["name"],
-                    "is_loopback": info.get("isLoopbackDevice", False),
-                    "max_input_channels": info["maxInputChannels"],
-                    "max_output_channels": info["maxOutputChannels"],
-                    "default_sample_rate": info["defaultSampleRate"],
-                }
-            )
+            devices.append({
+                "index": i,
+                "name": info["name"],
+                "is_loopback": info.get("isLoopbackDevice", False),
+                "max_input_channels": info["maxInputChannels"],
+                "max_output_channels": info["maxOutputChannels"],
+                "default_sample_rate": info["defaultSampleRate"],
+            })
 
         p.terminate()
         return devices
 
+    @staticmethod
+    def is_available() -> bool:
+        """Check if WASAPI loopback is available (Windows only)."""
+        if sys.platform != "win32":
+            return False
+        try:
+            import pyaudiowpatch
+            return True
+        except ImportError:
+            return False
+
     def start(self) -> None:
         """Start capturing audio."""
+        pyaudio = self._pyaudio_module
+
         if self._thread is not None and self._thread.is_alive():
             raise RuntimeError("Already capturing")
 
@@ -167,6 +168,8 @@ class AudioCapture:
 
     def stop(self) -> None:
         """Stop capturing audio."""
+        pyaudio = self._pyaudio_module
+
         self._stop_event.set()
 
         if self._stream is not None:
@@ -187,6 +190,8 @@ class AudioCapture:
 
     def _audio_callback(self, in_data, frame_count, time_info, status):
         """Called by PyAudio when audio data is available."""
+        pyaudio = self._pyaudio_module
+
         if status:
             print(f"[AudioCapture] Status: {status}")
 

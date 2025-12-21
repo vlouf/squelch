@@ -23,10 +23,13 @@ class AudioConfig:
 @dataclass
 class WhisperConfig:
     """Whisper transcription settings."""
-    model_size: str = "base"  # tiny, base, small, medium, large-v2, large-v3
-    device: str = "auto"  # auto, cpu, cuda
+    # Separate models for fast and slow passes
+    fast_model: str = "base"    # Fast pass: speed matters (tiny, base)
+    slow_model: str = "small"   # Slow pass: quality matters (small, medium, large-v2)
+
+    device: str = "auto"        # auto, cpu, cuda
     compute_type: str = "auto"  # auto, int8, float16, float32
-    language: str | None = "en"  # None = auto-detect
+    language: str | None = "en" # None = auto-detect
 
 
 @dataclass

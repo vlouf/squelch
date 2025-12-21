@@ -18,7 +18,6 @@ from .types import ChunkType
 @dataclass
 class TranscriptionRequest:
     """A request to transcribe audio."""
-
     audio: np.ndarray
     start_time: float
     end_time: float
@@ -28,7 +27,6 @@ class TranscriptionRequest:
 @dataclass
 class TranscriptionResult:
     """Result from transcription."""
-
     text: str
     start_time: float
     end_time: float
@@ -44,8 +42,16 @@ class TranscriberWorker:
     This keeps the heavy lifting off the main thread/process.
     """
 
-    def __init__(self, config: WhisperConfig):
+    def __init__(self, model_size: str, config: WhisperConfig, name: str = "whisper"):
+        """
+        Args:
+            model_size: Whisper model to load (tiny, base, small, medium, large-v2, large-v3)
+            config: Whisper configuration (device, compute_type, language)
+            name: Name for logging purposes
+        """
+        self.model_size = model_size
         self.config = config
+        self.name = name
         self._input_queue: Queue = mp.Queue()
         self._output_queue: Queue = mp.Queue()
         self._process: mp.Process | None = None
@@ -57,7 +63,7 @@ class TranscriberWorker:
 
         self._process = mp.Process(
             target=_worker_loop,
-            args=(self.config, self._input_queue, self._output_queue),
+            args=(self.model_size, self.config, self._input_queue, self._output_queue, self.name),
             daemon=True,
         )
         self._process.start()
@@ -89,9 +95,7 @@ class TranscriberWorker:
 
         self._process = None
 
-    def submit(
-        self, audio: np.ndarray, start_time: float, end_time: float, chunk_type: ChunkType = ChunkType.FAST
-    ) -> None:
+    def submit(self, audio: np.ndarray, start_time: float, end_time: float, chunk_type: ChunkType = ChunkType.FAST) -> None:
         """Submit audio for transcription."""
         request = TranscriptionRequest(
             audio=audio,
@@ -125,14 +129,13 @@ class TranscriberWorker:
         return not self._output_queue.empty()
 
 
-def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue) -> None:
+def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, output_queue: Queue, name: str = "whisper") -> None:
     """
     The actual worker process loop.
 
     This runs in a separate process and loads the Whisper model.
     """
     import os
-
     # Workaround for OpenMP conflict when multiple libraries bundle their own runtime
     # (common with conda environments mixing numpy, torch, etc.)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -146,7 +149,6 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
     if device == "auto":
         try:
             import torch
-
             if torch.cuda.is_available():
                 device = "cuda"
                 compute_type = "float16" if compute_type == "auto" else compute_type
@@ -163,23 +165,23 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
     # Load the model (this can take a few seconds)
     try:
         model = WhisperModel(
-            config.model_size,
+            model_size,
             device=device,
             compute_type=compute_type,
         )
-        print(f"[Whisper] Model loaded on {device} with {compute_type}")
+        print(f"[Whisper:{name}] Model '{model_size}' loaded on {device} with {compute_type}")
     except Exception as e:
         # If CUDA fails, fall back to CPU
-        print(f"[Whisper] Failed to load on {device}: {e}")
-        print("[Whisper] Falling back to CPU...")
+        print(f"[Whisper:{name}] Failed to load on {device}: {e}")
+        print(f"[Whisper:{name}] Falling back to CPU...")
         device = "cpu"
         compute_type = "int8"
         model = WhisperModel(
-            config.model_size,
+            model_size,
             device=device,
             compute_type=compute_type,
         )
-        print(f"[Whisper] Model loaded on {device} with {compute_type}")
+        print(f"[Whisper:{name}] Model '{model_size}' loaded on {device} with {compute_type}")
 
     while True:
         try:
@@ -206,13 +208,11 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
             full_text_parts = []
 
             for segment in segments:
-                segment_list.append(
-                    {
-                        "start": segment.start,
-                        "end": segment.end,
-                        "text": segment.text,
-                    }
-                )
+                segment_list.append({
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text,
+                })
                 full_text_parts.append(segment.text)
 
             full_text = " ".join(full_text_parts).strip()
