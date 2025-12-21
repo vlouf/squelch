@@ -29,6 +29,23 @@ Keep responses brief and to the point."""
         self.config = config or LLMConfig()
         self._client = httpx.AsyncClient(timeout=60.0)
         self._history: list[dict] = []
+        self._available: bool = False
+
+    async def check_availability(self) -> bool:
+        """Check if Ollama is running and accessible."""
+        try:
+            # Ping Ollama's API
+            response = await self._client.get("http://localhost:11434/api/tags")
+            self._available = response.status_code == 200
+            return self._available
+        except Exception:
+            self._available = False
+            return False
+
+    @property
+    def is_available(self) -> bool:
+        """Return whether LLM is available."""
+        return self._available
 
     async def ask(self, question: str, transcript: str) -> str:
         """
@@ -41,6 +58,9 @@ Keep responses brief and to the point."""
         Returns:
             LLM response text
         """
+        if not self._available:
+            return "Error: Ollama is not running. Start it with 'ollama serve'"
+
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": f"Here is the recent transcript:\n\n{transcript}\n\n---\n\nQuestion: {question}"}
@@ -71,6 +91,7 @@ Keep responses brief and to the point."""
             return answer
 
         except httpx.ConnectError:
+            self._available = False
             return "Error: Cannot connect to Ollama. Is it running? (ollama serve)"
         except httpx.HTTPStatusError as e:
             return f"Error: {e.response.status_code} - {e.response.text}"

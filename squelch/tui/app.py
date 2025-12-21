@@ -92,6 +92,7 @@ class SquelchApp(App):
     """Main Squelch application."""
 
     TITLE = "Squelch"
+    ENABLE_COMMAND_PALETTE = False  # Disable to save footer space
     CSS = """
     #main-container {
         height: 1fr;
@@ -221,8 +222,26 @@ class SquelchApp(App):
         self.llm = LLMProcessor()
         self.log_event(f"LLM: {config.llm.model}")
 
+        # Check Ollama availability
+        self.check_ollama()
+
         # Set up polling for transcription results
         self.set_interval(0.1, self.poll_transcriptions)
+
+    def check_ollama(self) -> None:
+        """Check if Ollama is available."""
+        self.run_worker(self._check_ollama_async())
+
+    async def _check_ollama_async(self) -> None:
+        """Async check for Ollama availability."""
+        if self.llm:
+            available = await self.llm.check_availability()
+            if available:
+                self.log_event("✓ Ollama connected")
+            else:
+                self.log_event("⚠ Ollama not running")
+                self.log_event("  Ask feature disabled")
+                self.log_event("  Run: ollama serve")
 
     def log_event(self, message: str) -> None:
         """Log an event to the event panel."""
@@ -353,11 +372,18 @@ class SquelchApp(App):
             return
 
         event.input.value = ""
-        self.log_event(f"Ask: {query[:30]}...")
 
         if not self.llm:
             self.notify("LLM not initialized", title="Error")
             return
+
+        # Check if Ollama is available
+        if not self.llm.is_available:
+            self.notify("Ollama not running. Start with: ollama serve", title="Ask Unavailable")
+            self.log_event("Ask failed: Ollama not running")
+            return
+
+        self.log_event(f"Ask: {query[:30]}...")
 
         # Get recent transcript for context
         transcript = self.session.get_recent_transcript(last_n=config.llm.context_segments)
