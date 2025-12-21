@@ -8,7 +8,7 @@ import asyncio
 from datetime import datetime
 
 from .config import config
-from .engine import AudioCapture, TranscriberWorker, Session
+from .engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality
 
 
 async def main():
@@ -48,18 +48,19 @@ async def main():
     print()
 
     # Callback when audio chunk is ready
-    def on_chunk_ready(audio, start_time, end_time):
+    def on_chunk_ready(audio, start_time, end_time, chunk_type: ChunkType):
         session.audio_chunks_captured += 1
         duration = end_time - start_time
-        print(f"[AUDIO] Chunk {session.audio_chunks_captured}: {duration:.1f}s captured, sending to Whisper...")
-        transcriber.submit(audio, start_time, end_time)
+        type_label = "FAST" if chunk_type == ChunkType.FAST else "SLOW"
+        print(f"[AUDIO:{type_label}] {duration:.1f}s captured, sending to Whisper...")
+        transcriber.submit(audio, start_time, end_time, chunk_type)
 
     # Create audio capture
     audio = AudioCapture(config.audio, on_chunk_ready=on_chunk_ready)
 
     # Start capturing
     print(f"[INFO] Starting audio capture...")
-    print(f"[INFO] Chunk duration: {config.audio.chunk_duration}s")
+    print(f"[INFO] Fast chunks: {config.audio.fast_chunk_duration}s | Slow chunks: {config.audio.slow_chunk_duration}s")
     print(f"[INFO] Press Ctrl+C to stop.")
     print()
     print("=" * 60)
@@ -76,16 +77,20 @@ async def main():
             # Check for transcription results
             result = transcriber.get_result(timeout=None)
             if result:
-                session.add_segment(result.text, result.start_time, result.end_time)
+                quality = TranscriptQuality.FAST if result.chunk_type == ChunkType.FAST else TranscriptQuality.REFINED
+                session.add_segment(result.text, result.start_time, result.end_time, quality)
 
                 # Format timestamp
                 minutes = int(result.start_time // 60)
                 seconds = int(result.start_time % 60)
                 timestamp = f"[{minutes:02d}:{seconds:02d}]"
 
+                # Mark refined transcripts
+                quality_marker = "" if quality == TranscriptQuality.FAST else " ✓"
+
                 # Print the transcribed text
                 if result.text:
-                    print(f"{timestamp} {result.text}")
+                    print(f"{timestamp}{quality_marker} {result.text}")
                 else:
                     print(f"{timestamp} (silence)")
 
@@ -117,7 +122,9 @@ async def main():
         print("=" * 60)
         print(f"  Duration: {session.duration:.1f}s")
         print(f"  Chunks captured: {session.audio_chunks_captured}")
-        print(f"  Chunks transcribed: {session.audio_chunks_transcribed}")
+        print(f"  Fast transcribed: {session.fast_chunks_transcribed}")
+        print(f"  Slow transcribed: {session.slow_chunks_transcribed}")
+        print(f"  Refined: {session.refined_percentage:.0f}%")
         print(f"  Word count: {session.word_count}")
         print("=" * 60)
 

@@ -12,23 +12,28 @@ from typing import Any
 import numpy as np
 
 from ..config import WhisperConfig
+from .types import ChunkType
 
 
 @dataclass
 class TranscriptionRequest:
     """A request to transcribe audio."""
+
     audio: np.ndarray
     start_time: float
     end_time: float
+    chunk_type: ChunkType = ChunkType.FAST
 
 
 @dataclass
 class TranscriptionResult:
     """Result from transcription."""
+
     text: str
     start_time: float
     end_time: float
     segments: list[dict]  # Detailed segment info from Whisper
+    chunk_type: ChunkType = ChunkType.FAST
 
 
 class TranscriberWorker:
@@ -84,12 +89,15 @@ class TranscriberWorker:
 
         self._process = None
 
-    def submit(self, audio: np.ndarray, start_time: float, end_time: float) -> None:
+    def submit(
+        self, audio: np.ndarray, start_time: float, end_time: float, chunk_type: ChunkType = ChunkType.FAST
+    ) -> None:
         """Submit audio for transcription."""
         request = TranscriptionRequest(
             audio=audio,
             start_time=start_time,
             end_time=end_time,
+            chunk_type=chunk_type,
         )
         self._input_queue.put(request)
 
@@ -124,6 +132,7 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
     This runs in a separate process and loads the Whisper model.
     """
     import os
+
     # Workaround for OpenMP conflict when multiple libraries bundle their own runtime
     # (common with conda environments mixing numpy, torch, etc.)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -137,6 +146,7 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
     if device == "auto":
         try:
             import torch
+
             if torch.cuda.is_available():
                 device = "cuda"
                 compute_type = "float16" if compute_type == "auto" else compute_type
@@ -196,11 +206,13 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
             full_text_parts = []
 
             for segment in segments:
-                segment_list.append({
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": segment.text,
-                })
+                segment_list.append(
+                    {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "text": segment.text,
+                    }
+                )
                 full_text_parts.append(segment.text)
 
             full_text = " ".join(full_text_parts).strip()
@@ -210,6 +222,7 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
                 start_time=request.start_time,
                 end_time=request.end_time,
                 segments=segment_list,
+                chunk_type=request.chunk_type,
             )
 
             output_queue.put(result)
@@ -221,5 +234,6 @@ def _worker_loop(config: WhisperConfig, input_queue: Queue, output_queue: Queue)
                 start_time=request.start_time,
                 end_time=request.end_time,
                 segments=[],
+                chunk_type=request.chunk_type,
             )
             output_queue.put(result)
