@@ -16,8 +16,8 @@ class AudioConfig:
     # Dual-pass chunking for better transcription quality
     # Fast pass: low latency, shown immediately in UI
     # Slow pass: higher quality, used for final export
-    fast_chunk_duration: float = 6.0
-    slow_chunk_duration: float = 60.0  # seconds
+    fast_chunk_duration: float = 6.0   # Seconds per fast transcription chunk
+    slow_chunk_duration: float = 60.0  # Seconds per slow transcription chunk
 
 
 @dataclass
@@ -32,7 +32,7 @@ class WhisperConfig:
 @dataclass
 class OutputConfig:
     """Output settings."""
-    output_dir: Path = field(default_factory=lambda: Path("./meetings"))
+    output_dir: Path = field(default_factory=lambda: Path.home() / "Documents" / "Squelch")
 
 
 @dataclass

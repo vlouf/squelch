@@ -7,5 +7,15 @@ from .audio_capture import AudioCapture
 from .transcriber import TranscriberWorker
 from .session import Session
 from .llm import LLMProcessor
+from .summarizer import Summarizer, SummaryResult
 
-__all__ = ["AudioCapture", "ChunkType", "TranscriberWorker", "Session", "TranscriptQuality", "LLMProcessor"]
+__all__ = [
+    "AudioCapture",
+    "ChunkType",
+    "TranscriberWorker",
+    "Session",
+    "TranscriptQuality",
+    "LLMProcessor",
+    "Summarizer",
+    "SummaryResult",
+]

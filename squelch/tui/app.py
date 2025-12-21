@@ -9,7 +9,8 @@ from textual.widgets import Footer, Header, Static, Input, RichLog
 from textual.reactive import reactive
 
 from ..config import config
-from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor
+from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor, Summarizer
+from ..export import MarkdownExporter
 
 
 class TranscriptView(RichLog):
@@ -92,7 +93,7 @@ class SquelchApp(App):
     """Main Squelch application."""
 
     TITLE = "Squelch"
-    ENABLE_COMMAND_PALETTE = False  # Disable to save footer space
+    # ENABLE_COMMAND_PALETTE = False  # Disable to save footer space
     CSS = """
     #main-container {
         height: 1fr;
@@ -351,8 +352,49 @@ class SquelchApp(App):
         self.log_event("Meeting ended")
         self.log_event(f"Duration: {self.session.duration:.1f}s")
         self.log_event(f"Words: {self.session.word_count}")
-        # TODO: Phase 4 - Generate summary and export markdown
-        self.notify("Summary generation coming in Phase 4!", title="End Meeting")
+
+        if self.session.word_count == 0:
+            self.notify("No transcript to export", title="End Meeting")
+            return
+
+        # Run async export process
+        self.run_worker(self._generate_and_export())
+
+    async def _generate_and_export(self) -> None:
+        """Generate summary and export to markdown."""
+        self.log_event("Generating summary...")
+
+        # Get full transcript
+        transcript = self.session.get_full_transcript()
+
+        # Try to generate summary
+        summary_result = None
+        if self.llm and self.llm.is_available:
+            summarizer = Summarizer()
+            try:
+                summary_result = await summarizer.generate(transcript)
+                if summary_result.success:
+                    self.log_event("✓ Summary generated")
+                else:
+                    self.log_event(f"⚠ Summary failed: {summary_result.error}")
+            finally:
+                await summarizer.close()
+        else:
+            self.log_event("⚠ Ollama unavailable, skipping summary")
+
+        # Export to markdown
+        self.log_event("Exporting markdown...")
+        exporter = MarkdownExporter()
+        filepath = exporter.export(self.session, summary_result)
+        self.log_event(f"✓ Saved: {filepath.name}")
+
+        # Open the file
+        if exporter.open_file(filepath):
+            self.log_event("✓ Opened in viewer")
+        else:
+            self.log_event("⚠ Could not open file")
+
+        self.notify(f"Saved to {filepath.name}", title="Export Complete")
 
     def action_show_options(self) -> None:
         """Show options menu."""
