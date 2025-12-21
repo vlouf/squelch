@@ -9,22 +9,20 @@ from pathlib import Path
 @dataclass
 class AudioConfig:
     """Audio capture settings."""
-
     sample_rate: int = 16000  # Whisper expects 16kHz
     channels: int = 1  # Mono is fine for speech
     device_name: str | None = None  # None = use default, or specify e.g. "CABLE Output"
 
     # Dual-pass chunking for better transcription quality
     # Fast pass: low latency, shown immediately in UI
-    # Slow pass: higher quality, used for final export (in seconds).
+    # Slow pass: higher quality, used for final export
     fast_chunk_duration: float = 6.0
-    slow_chunk_duration: float = 60.0
+    slow_chunk_duration: float = 60.0  # seconds
 
 
 @dataclass
 class WhisperConfig:
     """Whisper transcription settings."""
-
     model_size: str = "base"  # tiny, base, small, medium, large-v2, large-v3
     device: str = "auto"  # auto, cpu, cuda
     compute_type: str = "auto"  # auto, int8, float16, float32
@@ -34,17 +32,26 @@ class WhisperConfig:
 @dataclass
 class OutputConfig:
     """Output settings."""
-
     output_dir: Path = field(default_factory=lambda: Path("./meetings"))
+
+
+@dataclass
+class LLMConfig:
+    """LLM configuration."""
+    endpoint: str = "http://localhost:11434/v1/chat/completions"
+    model: str = "llama3.1:8b"
+    max_tokens: int = 500
+    temperature: float = 0.7
+    context_segments: int = 20  # How many recent segments to include as context
 
 
 @dataclass
 class Config:
     """Main configuration container."""
-
     audio: AudioConfig = field(default_factory=AudioConfig)
     whisper: WhisperConfig = field(default_factory=WhisperConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
 
 
 # Default config instance

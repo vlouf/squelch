@@ -9,21 +9,7 @@ from textual.widgets import Footer, Header, Static, Input, RichLog
 from textual.reactive import reactive
 
 from ..config import config
-from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality
-
-
-class StatusIndicator(Static):
-    """Shows recording status."""
-
-    status = reactive("stopped")
-
-    def render(self) -> str:
-        icons = {
-            "stopped": "⚫ Stopped",
-            "recording": "🔴 Recording",
-            "paused": "⏸ Paused",
-        }
-        return icons.get(self.status, "⚫ Unknown")
+from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor
 
 
 class TranscriptView(RichLog):
@@ -49,6 +35,59 @@ class EventLog(RichLog):
         self.write(f"[dim]{time_str}[/] {message}")
 
 
+class ResponsePanel(Vertical):
+    """Collapsible panel for LLM responses."""
+
+    is_expanded = reactive(False)
+
+    def compose(self) -> ComposeResult:
+        yield Static("🤖 Response", id="response-title", classes="panel-title")
+        yield RichLog(id="response-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
+
+    def watch_is_expanded(self, expanded: bool) -> None:
+        """React to expansion state changes."""
+        self.set_class(expanded, "expanded")
+        self.set_class(not expanded, "collapsed")
+
+    def expand(self) -> None:
+        """Expand the panel."""
+        self.is_expanded = True
+
+    def collapse(self) -> None:
+        """Collapse the panel."""
+        self.is_expanded = False
+
+    def toggle(self) -> None:
+        """Toggle expansion state."""
+        self.is_expanded = not self.is_expanded
+
+    def show_response(self, question: str, answer: str) -> None:
+        """Display a Q&A exchange."""
+        self.expand()
+        try:
+            log = self.query_one("#response-log", RichLog)
+            log.write(f"[bold yellow]Q:[/] {question}")
+            log.write(f"[bold white]A:[/] {answer}")
+            log.write("")  # Blank line between exchanges
+        except Exception:
+            pass
+
+    def show_loading(self, question: str) -> None:
+        """Show loading state."""
+        self.expand()
+        try:
+            log = self.query_one("#response-log", RichLog)
+            log.write(f"[bold yellow]Q:[/] {question}")
+            log.write("[dim]Thinking...[/]")
+        except Exception:
+            pass
+
+    def clear_loading(self) -> None:
+        """Remove the loading indicator (by clearing last line)."""
+        # RichLog doesn't support removing lines easily, so we just let the answer overwrite
+        pass
+
+
 class SquelchApp(App):
     """Main Squelch application."""
 
@@ -58,8 +97,12 @@ class SquelchApp(App):
         height: 1fr;
     }
 
-    #transcript-container {
+    #left-panel {
         width: 3fr;
+    }
+
+    #transcript-container {
+        height: 1fr;
         border: solid green;
     }
 
@@ -85,6 +128,10 @@ class SquelchApp(App):
         padding: 0 1;
     }
 
+    #response-log {
+        padding: 0 1;
+    }
+
     #ask-input {
         dock: bottom;
         margin: 1 0;
@@ -93,12 +140,37 @@ class SquelchApp(App):
     Header {
         background: $primary;
     }
+
+    /* Response panel styles */
+    ResponsePanel {
+        height: auto;
+        border: solid $primary;
+        display: none;
+    }
+
+    ResponsePanel.expanded {
+        display: block;
+        height: auto;
+        min-height: 5;
+        max-height: 15;
+    }
+
+    ResponsePanel.collapsed {
+        display: none;
+    }
+
+    #response-title {
+        background: $primary;
+        color: $text;
+    }
     """
 
     BINDINGS = [
         Binding("f5", "toggle_recording", "Start/Stop"),
         Binding("f10", "end_meeting", "End & Generate"),
+        Binding("f3", "toggle_response", "Response"),
         Binding("f2", "show_options", "Options"),
+        Binding("escape", "collapse_response", "Close", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -110,15 +182,18 @@ class SquelchApp(App):
         self.session = Session()
         self.transcriber: TranscriberWorker | None = None
         self.audio: AudioCapture | None = None
+        self.llm: LLMProcessor | None = None
 
     def compose(self) -> ComposeResult:
         """Create the UI layout."""
         yield Header()
 
         with Horizontal(id="main-container"):
-            with Vertical(id="transcript-container"):
-                yield Static("Transcript", classes="panel-title")
-                yield TranscriptView(id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True)
+            with Vertical(id="left-panel"):
+                with Vertical(id="transcript-container"):
+                    yield Static("Transcript", classes="panel-title")
+                    yield TranscriptView(id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True)
+                yield ResponsePanel(id="response-panel")
             with Vertical(id="event-container"):
                 yield Static("Event Log", classes="panel-title")
                 yield EventLog(id="event-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
@@ -136,6 +211,10 @@ class SquelchApp(App):
         self.transcriber = TranscriberWorker(config.whisper)
         self.transcriber.start()
         self.log_event("Whisper ready")
+
+        # Initialize LLM processor
+        self.llm = LLMProcessor()
+        self.log_event(f"LLM: {config.llm.model}")
 
         # Set up polling for transcription results
         self.set_interval(0.1, self.poll_transcriptions)
@@ -226,6 +305,22 @@ class SquelchApp(App):
         """Update the header status indicator."""
         self.sub_title = {"recording": "🔴 Recording", "stopped": "⚫ Stopped", "paused": "⏸ Paused"}.get(status, "")
 
+    def action_toggle_response(self) -> None:
+        """Toggle the response panel."""
+        try:
+            panel = self.query_one("#response-panel", ResponsePanel)
+            panel.toggle()
+        except Exception:
+            pass
+
+    def action_collapse_response(self) -> None:
+        """Collapse the response panel."""
+        try:
+            panel = self.query_one("#response-panel", ResponsePanel)
+            panel.collapse()
+        except Exception:
+            pass
+
     def action_end_meeting(self) -> None:
         """End the meeting and generate summary."""
         self.stop_recording()
@@ -249,8 +344,46 @@ class SquelchApp(App):
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle ask input submission."""
         query = event.value.strip()
-        if query:
-            self.log_event(f"Ask: {query[:30]}...")
-            # TODO: Phase 3 - Send to LLM
-            self.notify("LLM integration coming in Phase 3!", title="Ask")
-            event.input.value = ""
+        if not query:
+            return
+
+        event.input.value = ""
+        self.log_event(f"Ask: {query[:30]}...")
+
+        if not self.llm:
+            self.notify("LLM not initialized", title="Error")
+            return
+
+        # Get recent transcript for context
+        transcript = self.session.get_recent_transcript(last_n=config.llm.context_segments)
+
+        if not transcript:
+            self.notify("No transcript yet. Start recording first!", title="Ask")
+            return
+
+        # Show loading state
+        try:
+            panel = self.query_one("#response-panel", ResponsePanel)
+            panel.show_loading(query)
+        except Exception:
+            pass
+
+        # Make async LLM call
+        response = await self.llm.ask(query, transcript)
+
+        # Show response
+        try:
+            panel = self.query_one("#response-panel", ResponsePanel)
+            # Clear the loading message and show actual response
+            log = panel.query_one("#response-log", RichLog)
+            log.clear()
+
+            # Show full history
+            for exchange in self.llm.history:
+                log.write(f"[bold yellow]Q:[/] {exchange['question']}")
+                log.write(f"[bold white]A:[/] {exchange['answer']}")
+                log.write("")
+
+            panel.expand()
+        except Exception as e:
+            self.log_event(f"Error displaying response: {e}")

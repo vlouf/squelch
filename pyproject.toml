@@ -18,6 +18,7 @@ dependencies = [
     "PyAudioWPatch>=0.2.12",
     "faster-whisper>=1.0.0",
     "textual>=0.40.0",
+    "httpx>=0.25.0",
 ]
 
 [project.optional-dependencies]
