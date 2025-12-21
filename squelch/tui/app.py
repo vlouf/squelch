@@ -31,8 +31,12 @@ class TranscriptView(RichLog):
 
     def add_segment(self, timestamp: str, text: str, refined: bool = False) -> None:
         """Add a transcript segment."""
-        marker = " ✓" if refined else ""
-        self.write(f"[bold cyan]{timestamp}[/]{marker} {text}")
+        if refined:
+            # Refined/slow pass: green with checkmark
+            self.write(f"[bold green]{timestamp}[/] [green]✓ {text}[/]")
+        else:
+            # Fast pass: cyan (default)
+            self.write(f"[bold cyan]{timestamp}[/] {text}")
 
 
 class EventLog(RichLog):
@@ -54,27 +58,36 @@ class SquelchApp(App):
         height: 1fr;
     }
 
-    #transcript-panel {
+    #transcript-container {
         width: 3fr;
         border: solid green;
+    }
+
+    #event-container {
+        width: 1fr;
+        border: solid gray;
+    }
+
+    .panel-title {
+        dock: top;
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+        color: $text-muted;
+        text-style: bold;
+    }
+
+    #transcript-panel {
         padding: 0 1;
     }
 
     #event-log {
-        width: 1fr;
-        border: solid gray;
         padding: 0 1;
     }
 
     #ask-input {
         dock: bottom;
         margin: 1 0;
-    }
-
-    #status {
-        dock: right;
-        width: auto;
-        padding: 0 1;
     }
 
     Header {
@@ -103,8 +116,12 @@ class SquelchApp(App):
         yield Header()
 
         with Horizontal(id="main-container"):
-            yield TranscriptView(id="transcript-panel", highlight=True, markup=True)
-            yield EventLog(id="event-log", highlight=True, markup=True)
+            with Vertical(id="transcript-container"):
+                yield Static("Transcript", classes="panel-title")
+                yield TranscriptView(id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True)
+            with Vertical(id="event-container"):
+                yield Static("Event Log", classes="panel-title")
+                yield EventLog(id="event-log", highlight=True, markup=True, wrap=True, auto_scroll=True)
 
         yield Input(placeholder="💬 Ask about the transcript...", id="ask-input")
         yield Footer()
