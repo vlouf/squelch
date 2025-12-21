@@ -42,7 +42,7 @@ class OutputConfig:
 class LLMConfig:
     """LLM configuration."""
     endpoint: str = "http://localhost:11434/v1/chat/completions"
-    model: str = "llama3.1:8b"
+    model: str | None = None  # None = auto-detect first available
     max_tokens: int = 500
     temperature: float = 0.7
     context_segments: int = 20  # How many recent segments to include as context

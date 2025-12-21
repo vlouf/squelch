@@ -54,8 +54,13 @@ class SummaryResult:
 class Summarizer:
     """Generates meeting summaries using LLM."""
 
-    def __init__(self):
+    def __init__(self, model: str | None = None):
+        """
+        Args:
+            model: Ollama model to use. If None, uses config default.
+        """
         self._client = httpx.AsyncClient(timeout=120.0)  # Longer timeout for summaries
+        self._model = model
 
     async def generate(self, transcript: str) -> SummaryResult:
         """
@@ -74,11 +79,19 @@ class Summarizer:
                 error="No transcript to summarize"
             )
 
+        model = self._model or config.llm.model
+        if not model:
+            return SummaryResult(
+                success=False,
+                content="",
+                error="No LLM model available"
+            )
+
         try:
             response = await self._client.post(
                 config.llm.endpoint,
                 json={
-                    "model": config.llm.model,
+                    "model": model,
                     "messages": [
                         {"role": "user", "content": SUMMARY_PROMPT.format(transcript=transcript)}
                     ],

@@ -235,7 +235,6 @@ class SquelchApp(App):
 
         # Initialize LLM processor
         self.llm = LLMProcessor()
-        self.log_event(f"LLM: {config.llm.model}")
 
         # Check Ollama availability
         self.check_ollama()
@@ -252,7 +251,7 @@ class SquelchApp(App):
         if self.llm:
             available = await self.llm.check_availability()
             if available:
-                self.log_event("✓ Ollama connected")
+                self.log_event(f"✓ Ollama: {self.llm.model}")
             else:
                 self.log_event("⚠ Ollama not running")
                 self.log_event("  Ask feature disabled")
@@ -395,8 +394,8 @@ class SquelchApp(App):
 
         # Try to generate summary
         summary_result = None
-        if self.llm and self.llm.is_available:
-            summarizer = Summarizer()
+        if self.llm and self.llm.is_available and self.llm.model:
+            summarizer = Summarizer(model=self.llm.model)
             try:
                 summary_result = await summarizer.generate(transcript)
                 if summary_result.success:

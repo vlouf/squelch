@@ -136,9 +136,18 @@ def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, out
     This runs in a separate process and loads the Whisper model.
     """
     import os
+    import sys
+    import warnings
+
+    # Suppress warnings that would clutter the TUI
+    warnings.filterwarnings("ignore")
+
     # Workaround for OpenMP conflict when multiple libraries bundle their own runtime
     # (common with conda environments mixing numpy, torch, etc.)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+    # Suppress TensorFlow/PyTorch logging
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
     from faster_whisper import WhisperModel
 
