@@ -51,7 +51,9 @@ async def main():
     def on_chunk_ready(audio, start_time, end_time, chunk_type: ChunkType):
         session.audio_chunks_captured += 1
         duration = end_time - start_time
-        type_label = "FAST" if chunk_type == ChunkType.FAST else "SLOW"
+        # Debug: print actual values
+        is_fast = chunk_type.value == "fast"
+        type_label = "FAST" if is_fast else "SLOW"
         print(f"[AUDIO:{type_label}] {duration:.1f}s captured, sending to Whisper...")
         transcriber.submit(audio, start_time, end_time, chunk_type)
 
@@ -77,7 +79,9 @@ async def main():
             # Check for transcription results
             result = transcriber.get_result(timeout=None)
             if result:
-                quality = TranscriptQuality.FAST if result.chunk_type == ChunkType.FAST else TranscriptQuality.REFINED
+                # Use .value comparison since enum was pickled across process boundary
+                is_fast = result.chunk_type.value == "fast"
+                quality = TranscriptQuality.FAST if is_fast else TranscriptQuality.REFINED
                 session.add_segment(result.text, result.start_time, result.end_time, quality)
 
                 # Format timestamp
