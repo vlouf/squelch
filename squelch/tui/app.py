@@ -135,6 +135,11 @@ class SquelchApp(App):
     #ask-input {
         dock: bottom;
         margin: 1 0;
+        border: solid $surface;
+    }
+
+    #ask-input:focus {
+        border: solid $primary;
     }
 
     Header {
@@ -166,12 +171,12 @@ class SquelchApp(App):
     """
 
     BINDINGS = [
-        Binding("f5", "toggle_recording", "Start/Stop"),
-        Binding("f10", "end_meeting", "End & Generate"),
-        Binding("f3", "toggle_response", "Response"),
-        Binding("f2", "show_options", "Options"),
-        Binding("escape", "collapse_response", "Close", show=False),
-        Binding("q", "quit", "Quit"),
+        Binding("f5", "toggle_recording", "Start/Stop", priority=True),
+        Binding("f10", "end_meeting", "End & Generate", priority=True),
+        Binding("f3", "toggle_response", "Response", priority=True),
+        Binding("f2", "show_options", "Options", priority=True),
+        Binding("escape", "collapse_response", "Close", show=False, priority=True),
+        Binding("q", "quit", "Quit", priority=True),
     ]
 
     # Reactive state
