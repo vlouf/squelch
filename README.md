@@ -6,10 +6,11 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 
 - 🎤 **Live audio capture** from any Windows application via WASAPI loopback
 - 📝 **Real-time transcription** using faster-whisper
-- 🔄 **Dual-pass transcription** — fast pass for low latency, slow pass for accuracy
-- 🤖 **AI-powered Q&A** during meetings via Ollama
+- 🔄 **Dual-pass transcription** — fast model for low latency, better model for accuracy
+- 🤖 **AI-powered Q&A** during meetings via Ollama (auto-detects available models)
 - 📋 **Automatic summary generation** with key themes and action items
 - 📄 **Markdown export** with collapsible full transcript
+- ⚙️ **Options menu** — change settings without editing config files
 - 💻 **Terminal UI** using Textual
 
 ## Screenshots
@@ -32,7 +33,7 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 ├─────────────────────────────────────────┴─────────────┤
 │ 💬 Ask about the transcript...                        │
 ├───────────────────────────────────────────────────────┤
-│ f5 Start/Stop  f10 End & Generate  f3 Response  q Quit│
+│ f5 Start/Stop  f10 End & Generate  f2 Options  q Quit │
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -42,11 +43,12 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 
 1. **Python 3.11+**
 
-2. **Ollama** (for LLM features): Install from [ollama.ai](https://ollama.ai), then pull a model:
+2. **Ollama** (for LLM features): Install from [ollama.ai](https://ollama.ai), then pull any model:
    ```powershell
    ollama pull llama3.1:8b
    ollama serve
    ```
+   Squelch auto-detects available models — use whichever you prefer.
 
 3. **CUDA** (optional): For GPU-accelerated transcription, install CUDA toolkit and cuDNN.
 
@@ -80,7 +82,7 @@ python -m squelch
 | F5 | Start/Stop recording |
 | F10 | End meeting & generate summary |
 | F3 | Toggle response panel |
-| F2 | Options (coming soon) |
+| F2 | Options menu |
 | Escape | Close response panel |
 | Q | Quit (when not typing) |
 
@@ -92,11 +94,22 @@ python -m squelch
 4. **End meeting** (F10) — generates summary and exports to Markdown
 5. **Review** — file opens automatically in your default Markdown viewer
 
+### Options Menu (F2)
+
+Press F2 (when not recording) to open the options menu:
+
+- **Audio Device** — select which loopback device to capture from
+- **Whisper Fast Model** — model for quick transcription (tiny, base, small, medium, large)
+- **Whisper Slow Model** — model for refined transcription
+- **LLM Model** — select from available Ollama models
+
+Settings are applied immediately on save. Whisper models are reloaded automatically.
+
 ### Output
 
 Meeting notes are saved to `~/Documents/Squelch/` with filenames like:
 ```
-2025-12-21_2118_meeting.md
+2025-12-22_1430_meeting.md
 ```
 
 The Markdown file includes:
@@ -115,14 +128,16 @@ python -m squelch --cli
 
 ## Configuration
 
-Edit `squelch/config.py` to change:
+Settings can be changed via the Options menu (F2) or by editing `squelch/config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `audio.device_name` | None (default device) | Audio loopback device |
 | `audio.fast_chunk_duration` | 6.0s | Fast pass chunk size |
 | `audio.slow_chunk_duration` | 60.0s | Slow pass chunk size |
-| `whisper.model_size` | "base" | Whisper model (tiny/base/small/medium/large) |
-| `llm.model` | "llama3.1:8b" | Ollama model for Q&A and summaries |
+| `whisper.fast_model` | "base" | Whisper model for fast pass |
+| `whisper.slow_model` | "small" | Whisper model for slow pass |
+| `llm.model` | None (auto-detect) | Ollama model for Q&A and summaries |
 | `llm.context_segments` | 20 | How many segments to include in Q&A context |
 | `output.output_dir` | ~/Documents/Squelch | Where to save meeting notes |
 
@@ -130,10 +145,10 @@ Edit `squelch/config.py` to change:
 
 ### Dual-Pass Transcription
 
-Squelch uses two parallel transcription passes:
+Squelch uses two parallel transcription workers with different models:
 
-1. **Fast pass** (6-second chunks): Low latency, displayed immediately in cyan
-2. **Slow pass** (60-second chunks): Higher accuracy, replaces fast pass segments, displayed in green with ✓
+1. **Fast pass** (6-second chunks, `base` model): Low latency, displayed immediately in cyan
+2. **Slow pass** (60-second chunks, `small` model): Higher accuracy, replaces fast pass segments, displayed in green with ✓
 
 This gives you quick feedback while maintaining transcript quality.
 
@@ -144,6 +159,7 @@ Squelch captures audio via WASAPI loopback — it records whatever is playing th
 ### LLM Integration
 
 Squelch uses Ollama for local LLM inference:
+- **Auto-detection**: Automatically finds and uses available Ollama models
 - **Live Q&A**: Ask questions about the transcript mid-meeting
 - **Summary generation**: Automatic key themes and action item extraction
 - **Privacy**: All processing happens locally on your machine
@@ -157,17 +173,28 @@ squelch/
 ├── cli.py                # Legacy test CLI
 ├── config.py             # Configuration
 ├── engine/
+│   ├── audio/
+│   │   ├── base.py       # Abstract audio capture interface
+│   │   └── windows.py    # WASAPI loopback (Windows)
 │   ├── types.py          # Shared enums (ChunkType, TranscriptQuality)
-│   ├── audio_capture.py  # WASAPI loopback capture with dual buffers
-│   ├── transcriber.py    # faster-whisper worker process
+│   ├── transcriber.py    # faster-whisper worker processes
 │   ├── session.py        # Session state management
 │   ├── llm.py            # LLM processor for Q&A
 │   └── summarizer.py     # Meeting summary generation
 ├── export/
 │   └── markdown.py       # Markdown file generation
 └── tui/
-    └── app.py            # Textual terminal UI
+    ├── app.py            # Textual terminal UI
+    └── options.py        # Options modal screen
 ```
+
+## Cross-Platform Support
+
+Currently Windows-only (WASAPI loopback). The audio capture is architected for cross-platform support:
+
+- `engine/audio/base.py` — Abstract interface
+- `engine/audio/windows.py` — Windows implementation
+- Linux/macOS — Not yet implemented (contributions welcome!)
 
 ## Dependencies
 
@@ -185,8 +212,12 @@ squelch/
 - [x] **Phase 2**: Textual TUI with live transcript display
 - [x] **Phase 3**: LLM integration (live Q&A via Ollama)
 - [x] **Phase 4**: Summary generation & Markdown export
-- [ ] **Phase 5**: Polish (options menu, audio recording, theming)
+- [x] **Phase 5**: Options menu, dual Whisper models, cross-platform prep
 
-## License
+### Future Ideas
 
-MIT
+- [ ] Save raw audio as WAV
+- [ ] Theming / color customization
+- [ ] Linux audio capture (PulseAudio/PipeWire)
+- [ ] macOS audio capture (CoreAudio)
+- [ ] Speaker diarization
