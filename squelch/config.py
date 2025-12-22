@@ -60,8 +60,9 @@ class OutputConfig:
 @dataclass
 class LLMConfig:
     """LLM configuration."""
-    endpoint: str = "http://localhost:11434/v1/chat/completions"
-    model: str | None = None  # None = auto-detect
+    provider: str = "ollama"  # "ollama" or "litellm"
+    endpoint: str = "http://localhost:11434/v1/chat/completions"  # For Ollama
+    model: str | None = None  # None = auto-detect for Ollama
     max_tokens: int = 500
     temperature: float = 0.7
     context_segments: int = 20
@@ -111,6 +112,7 @@ class Config:
 
         # LLM section
         lines.append("[llm]")
+        lines.append(f'provider = "{self.llm.provider}"')
         if self.llm.model:
             lines.append(f'model = "{self.llm.model}"')
         lines.append(f"context_segments = {self.llm.context_segments}")
@@ -170,6 +172,8 @@ class Config:
             # LLM
             if "llm" in data:
                 llm = data["llm"]
+                if "provider" in llm:
+                    config.llm.provider = llm["provider"]
                 if "model" in llm:
                     config.llm.model = llm["model"]
                 if "context_segments" in llm:

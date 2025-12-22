@@ -41,6 +41,24 @@ WHISPER_LANGUAGES = [
     ("Hindi", "hi"),
 ]
 
+# LLM provider options
+LLM_PROVIDERS = [
+    ("Ollama (local)", "ollama"),
+    ("Cloud (LiteLLM)", "litellm"),
+]
+
+# Suggested cloud models
+CLOUD_MODELS = [
+    ("gpt-4o", "gpt-4o"),
+    ("gpt-4o-mini", "gpt-4o-mini"),
+    ("claude-sonnet-4-20250514", "claude-sonnet-4-20250514"),
+    ("claude-haiku-4-20250514", "claude-haiku-4-20250514"),
+    ("gemini/gemini-1.5-flash", "gemini/gemini-1.5-flash"),
+    ("gemini/gemini-1.5-pro", "gemini/gemini-1.5-pro"),
+    ("deepseek/deepseek-chat", "deepseek/deepseek-chat"),
+    ("mistral/mistral-large-latest", "mistral/mistral-large-latest"),
+]
+
 
 class OptionsScreen(ModalScreen[dict | None]):
     """Modal screen for editing options."""
@@ -115,6 +133,13 @@ class OptionsScreen(ModalScreen[dict | None]):
         width: 1fr;
     }
 
+    .hint {
+        color: $text-muted;
+        text-style: italic;
+        padding-left: 2;
+        height: 1;
+    }
+
     #button-row {
         margin-top: 1;
         padding-top: 1;
@@ -139,6 +164,7 @@ class OptionsScreen(ModalScreen[dict | None]):
         audio_devices: list[tuple[str, str]],
         llm_models: list[tuple[str, str]],
         current_audio_device: str | None,
+        current_llm_provider: str,
         current_llm_model: str | None,
         current_fast_whisper: str,
         current_slow_whisper: str,
@@ -148,8 +174,9 @@ class OptionsScreen(ModalScreen[dict | None]):
     ):
         super().__init__()
         self.audio_devices = audio_devices
-        self.llm_models = llm_models
+        self.llm_models = llm_models  # Ollama models
         self.current_audio_device = current_audio_device
+        self.current_llm_provider = current_llm_provider
         self.current_llm_model = current_llm_model
         self.current_fast_whisper = current_fast_whisper
         self.current_slow_whisper = current_slow_whisper
@@ -209,18 +236,40 @@ class OptionsScreen(ModalScreen[dict | None]):
                     )
 
                 # LLM section
-                yield Static("LLM (Ollama)", classes="section-title")
+                yield Static("LLM", classes="section-title")
                 with Horizontal(classes="option-row"):
+                    yield Label("Provider:")
+                    yield Select(
+                        LLM_PROVIDERS,
+                        id="llm-provider",
+                        value=self.current_llm_provider,
+                        allow_blank=False,
+                    )
+
+                # Ollama model selector (shown when provider is ollama)
+                with Horizontal(classes="option-row", id="ollama-model-row"):
                     yield Label("Model:")
                     if self.llm_models:
                         yield Select(
                             self.llm_models,
-                            id="llm-model",
-                            value=self.current_llm_model,
+                            id="llm-model-ollama",
+                            value=self.current_llm_model if self.current_llm_provider == "ollama" else (self.llm_models[0][1] if self.llm_models else None),
                             allow_blank=False,
                         )
                     else:
-                        yield Static("No models available", id="llm-model-none")
+                        yield Static("No Ollama models", id="llm-model-none")
+
+                # Cloud model input (shown when provider is litellm)
+                with Horizontal(classes="option-row", id="cloud-model-row"):
+                    yield Label("Model:")
+                    yield Input(
+                        value=self.current_llm_model if self.current_llm_provider == "litellm" else "gpt-4o-mini",
+                        placeholder="e.g., gpt-4o, claude-sonnet-4-20250514",
+                        id="llm-model-cloud",
+                    )
+
+                # Hint for cloud (shown when provider is litellm)
+                yield Static("  Set API keys via environment variables", classes="hint", id="cloud-hint")
 
                 # Output section
                 yield Static("Output", classes="section-title")
@@ -233,6 +282,26 @@ class OptionsScreen(ModalScreen[dict | None]):
                 yield Button("Save", variant="primary", id="save-btn")
                 yield Button("Reset", variant="warning", id="reset-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        """Set initial visibility based on provider."""
+        self._update_llm_visibility(self.current_llm_provider)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Handle select changes."""
+        if event.select.id == "llm-provider":
+            self._update_llm_visibility(str(event.value))
+
+    def _update_llm_visibility(self, provider: str) -> None:
+        """Show/hide LLM model widgets based on provider."""
+        is_ollama = provider == "ollama"
+
+        try:
+            self.query_one("#ollama-model-row").display = is_ollama
+            self.query_one("#cloud-model-row").display = not is_ollama
+            self.query_one("#cloud-hint").display = not is_ollama
+        except Exception:
+            pass  # Widgets may not exist yet
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-btn":
@@ -254,17 +323,19 @@ class OptionsScreen(ModalScreen[dict | None]):
             self.query_one("#whisper-language", Select).value = "en"
             self.query_one("#whisper-fast", Select).value = "base"
             self.query_one("#whisper-slow", Select).value = "small"
+            self.query_one("#llm-provider", Select).value = "ollama"
+            self._update_llm_visibility("ollama")
 
             # Reset output dir
             from pathlib import Path
             default_output = str(Path.home() / "Documents" / "Squelch")
             self.query_one("#output-dir", Input).value = default_output
 
-            # Reset LLM if available
+            # Reset LLM models
             try:
-                llm_select = self.query_one("#llm-model", Select)
                 if self.llm_models:
-                    llm_select.value = self.llm_models[0][1]  # First available
+                    self.query_one("#llm-model-ollama", Select).value = self.llm_models[0][1]
+                self.query_one("#llm-model-cloud", Input).value = "gpt-4o-mini"
             except Exception:
                 pass
 
@@ -301,13 +372,28 @@ class OptionsScreen(ModalScreen[dict | None]):
             if output_input.value.strip():
                 config.output.output_dir = Path(output_input.value.strip())
 
-            # LLM model (if available)
+            # LLM provider
+            provider = "ollama"
             try:
-                llm_select = self.query_one("#llm-model", Select)
-                if llm_select.value != Select.BLANK:
-                    config.llm.model = llm_select.value
+                provider_select = self.query_one("#llm-provider", Select)
+                if provider_select.value != Select.BLANK:
+                    provider = provider_select.value
+                    config.llm.provider = provider
             except Exception:
-                pass  # No LLM models available
+                pass
+
+            # LLM model - get from correct widget based on provider
+            try:
+                if provider == "ollama":
+                    llm_select = self.query_one("#llm-model-ollama", Select)
+                    if llm_select.value != Select.BLANK:
+                        config.llm.model = llm_select.value
+                else:
+                    llm_input = self.query_one("#llm-model-cloud", Input)
+                    if llm_input.value.strip():
+                        config.llm.model = llm_input.value.strip()
+            except Exception:
+                pass  # Widgets may not exist
 
             # Return result with dark mode setting
             self.dismiss({"saved": True, "dark_mode": dark_switch.value})

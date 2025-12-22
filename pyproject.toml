@@ -27,9 +27,8 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
 ]
-llm = [
-    "anthropic>=0.18.0",
-    "openai>=1.0.0",
+cloud = [
+    "litellm>=1.0.0",
 ]
 
 [project.scripts]

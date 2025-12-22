@@ -10,7 +10,7 @@ from textual.reactive import reactive
 from textual.command import Hit, Hits, Provider
 
 from ..config import config
-from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor, Summarizer
+from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, create_llm_processor, Summarizer
 from ..export import MarkdownExporter
 from .options import OptionsScreen
 from .about import AboutScreen
@@ -230,7 +230,7 @@ class SquelchApp(App):
         self.fast_transcriber: TranscriberWorker | None = None
         self.slow_transcriber: TranscriberWorker | None = None
         self.audio: AudioCapture | None = None
-        self.llm: LLMProcessor | None = None
+        self.llm = None  # Created in on_mount based on config
 
     def compose(self) -> ComposeResult:
         """Create the UI layout."""
@@ -281,29 +281,33 @@ class SquelchApp(App):
         self.slow_transcriber.start()
         self.log_event("Whisper ready")
 
-        # Initialize LLM processor
-        self.llm = LLMProcessor()
+        # Initialize LLM processor based on config
+        self.llm = create_llm_processor()
+        self.log_event(f"LLM provider: {config.llm.provider}")
 
-        # Check Ollama availability
-        self.check_ollama()
+        # Check LLM availability
+        self.check_llm()
 
         # Set up polling for transcription results
         self.set_interval(0.1, self.poll_transcriptions)
 
-    def check_ollama(self) -> None:
-        """Check if Ollama is available."""
-        self.run_worker(self._check_ollama_async())
+    def check_llm(self) -> None:
+        """Check if LLM is available."""
+        self.run_worker(self._check_llm_async())
 
-    async def _check_ollama_async(self) -> None:
-        """Async check for Ollama availability."""
+    async def _check_llm_async(self) -> None:
+        """Async check for LLM availability."""
         if self.llm:
             available = await self.llm.check_availability()
             if available:
-                self.log_event(f"✓ Ollama: {self.llm.model}")
+                self.log_event(f"✓ LLM: {self.llm.model}")
             else:
-                self.log_event("⚠ Ollama not running")
-                self.log_event("  Ask feature disabled")
-                self.log_event("  Run: ollama serve")
+                if config.llm.provider == "ollama":
+                    self.log_event("⚠ Ollama not running")
+                    self.log_event("  Run: ollama serve")
+                else:
+                    self.log_event("⚠ LLM not available")
+                    self.log_event("  Check API key / model config")
 
     def log_event(self, message: str) -> None:
         """Log an event to the event panel."""
@@ -498,6 +502,7 @@ class SquelchApp(App):
         self._prev_fast_model = config.whisper.fast_model
         self._prev_slow_model = config.whisper.slow_model
         self._prev_language = config.whisper.language
+        self._prev_llm_provider = config.llm.provider
         self._prev_llm_model = self.llm.model if self.llm else None
         self._prev_dark_mode = self.theme == "textual-dark"
         self._prev_output_dir = str(config.output.output_dir)
@@ -508,6 +513,7 @@ class SquelchApp(App):
                 audio_devices=audio_devices,
                 llm_models=llm_models,
                 current_audio_device=current_audio,
+                current_llm_provider=config.llm.provider,
                 current_llm_model=current_llm,
                 current_fast_whisper=config.whisper.fast_model,
                 current_slow_whisper=config.whisper.slow_model,
@@ -534,10 +540,17 @@ class SquelchApp(App):
             self.log_event(f"Theme: {mode}")
             changes_made = True
 
-        # Check LLM model change
-        if self.llm and config.llm.model and config.llm.model != self._prev_llm_model:
-            self.llm.set_model(config.llm.model)
-            self.log_event(f"LLM: {config.llm.model}")
+        # Check LLM provider/model change
+        llm_changed = (
+            config.llm.provider != self._prev_llm_provider or
+            config.llm.model != self._prev_llm_model
+        )
+
+        if llm_changed:
+            # Recreate LLM processor with new settings
+            self.llm = create_llm_processor()
+            self.log_event(f"LLM: {config.llm.provider} / {config.llm.model or 'auto'}")
+            self.check_llm()
             changes_made = True
 
         # Check Whisper model/language changes
