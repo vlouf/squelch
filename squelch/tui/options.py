@@ -12,14 +12,14 @@ from ..config import config
 from ..engine import AudioCapture
 
 
-# Whisper model options
+# Whisper model options with approximate RAM usage
 WHISPER_MODELS = [
-    ("tiny", "tiny"),
-    ("base", "base"),
-    ("small", "small"),
-    ("medium", "medium"),
-    ("large-v2", "large-v2"),
-    ("large-v3", "large-v3"),
+    ("tiny (~75 MB)", "tiny"),
+    ("base (~150 MB)", "base"),
+    ("small (~500 MB)", "small"),
+    ("medium (~1.5 GB)", "medium"),
+    ("large-v2 (~3 GB)", "large-v2"),
+    ("large-v3 (~3 GB)", "large-v3"),
 ]
 
 # Language options (most common + auto)
