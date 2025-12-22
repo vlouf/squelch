@@ -13,6 +13,7 @@ from ..config import config
 from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor, Summarizer
 from ..export import MarkdownExporter
 from .options import OptionsScreen
+from .about import AboutScreen
 
 
 class SquelchCommands(Provider):
@@ -23,6 +24,7 @@ class SquelchCommands(Provider):
         app = self.app
 
         commands = [
+            ("About / Help", "Show help and keybindings", "show_about"),
             ("Toggle Recording", "Start or stop audio recording", "toggle_recording"),
             ("End Meeting", "End meeting and generate summary", "end_meeting"),
             ("Show Options", "Open the options menu", "show_options"),
@@ -203,6 +205,7 @@ class SquelchApp(App):
     """
 
     BINDINGS = [
+        Binding("f1", "show_about", "Help", priority=True),
         Binding("f5", "toggle_recording", "Start/Stop", priority=True),
         Binding("f10", "end_meeting", "End & Generate", priority=True),
         Binding("f3", "toggle_response", "Response", priority=True),
@@ -450,6 +453,10 @@ class SquelchApp(App):
             self.log_event("⚠ Could not open file")
 
         self.notify(f"Saved to {filepath.name}", title="Export Complete")
+
+    def action_show_about(self) -> None:
+        """Show about/help screen."""
+        self.push_screen(AboutScreen())
 
     def action_show_options(self) -> None:
         """Show options menu."""
