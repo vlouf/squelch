@@ -4,13 +4,14 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 
 ## Features
 
-- 🎤 **Live audio capture** from any Windows application via WASAPI loopback
+- 🎤 **Live audio capture** from system audio (Windows WASAPI, Linux PipeWire)
 - 📝 **Real-time transcription** using faster-whisper
 - 🔄 **Dual-pass transcription** — fast model for low latency, better model for accuracy
 - 🤖 **AI-powered Q&A** during meetings via Ollama (auto-detects available models)
 - 📋 **Automatic summary generation** with key themes and action items
 - 📄 **Markdown export** with collapsible full transcript
 - ⚙️ **Options menu** — change settings without editing config files
+- 🎨 **Theming** — Command palette with multiple built-in themes
 - 💻 **Terminal UI** using Textual
 
 ## Screenshots
@@ -44,7 +45,7 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 1. **Python 3.11+**
 
 2. **Ollama** (for LLM features): Install from [ollama.ai](https://ollama.ai), then pull any model:
-   ```powershell
+   ```bash
    ollama pull llama3.1:8b
    ollama serve
    ```
@@ -52,16 +53,26 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 
 3. **CUDA** (optional): For GPU-accelerated transcription, install CUDA toolkit and cuDNN.
 
+4. **Linux only**: PipeWire is required for audio capture:
+   ```bash
+   # Debian/Ubuntu
+   sudo apt install pipewire pipewire-pulse
+   
+   # Fedora
+   sudo dnf install pipewire pipewire-pulseaudio
+   ```
+
 ### Install Squelch
 
-```powershell
+```bash
 # Clone the repository
 git clone https://github.com/vlouf/squelch.git
 cd squelch
 
 # Create a virtual environment
 python -m venv venv
-venv\Scripts\activate
+source venv/bin/activate  # Linux/macOS
+# or: venv\Scripts\activate  # Windows
 
 # Install in development mode
 pip install -e ".[dev,llm]"
@@ -71,7 +82,7 @@ pip install -e ".[dev,llm]"
 
 ### Launch the TUI
 
-```powershell
+```bash
 python -m squelch
 ```
 
@@ -83,8 +94,16 @@ python -m squelch
 | F10 | End meeting & generate summary |
 | F3 | Toggle response panel |
 | F2 | Options menu |
+| Ctrl+P | Command palette (themes, commands) |
 | Escape | Close response panel |
 | Q | Quit (when not typing) |
+
+### Command Palette (Ctrl+P)
+
+Press `Ctrl+P` to open the command palette. From here you can:
+
+- **Change themes** — Type "theme" to see all available themes (nord, gruvbox, dracula, monokai, tokyo-night, etc.)
+- **Run commands** — Toggle recording, end meeting, open options, and more
 
 ### Workflow
 
@@ -98,6 +117,7 @@ python -m squelch
 
 Press F2 (when not recording) to open the options menu:
 
+- **Dark mode** — Toggle between dark and light themes
 - **Audio Device** — select which loopback device to capture from
 - **Whisper Fast Model** — model for quick transcription (tiny, base, small, medium, large)
 - **Whisper Slow Model** — model for refined transcription
@@ -122,7 +142,7 @@ The Markdown file includes:
 
 For testing without the TUI:
 
-```powershell
+```bash
 python -m squelch --cli
 ```
 
@@ -154,7 +174,10 @@ This gives you quick feedback while maintaining transcript quality.
 
 ### Audio Capture
 
-Squelch captures audio via WASAPI loopback — it records whatever is playing through your speakers/headphones. This works with any application (Teams, Zoom, YouTube, etc.) without needing virtual audio cables.
+Squelch captures system audio via loopback — it records whatever is playing through your speakers/headphones. This works with any application (Teams, Zoom, YouTube, etc.) without needing virtual audio cables.
+
+- **Windows**: WASAPI loopback via PyAudioWPatch
+- **Linux**: PipeWire loopback via sounddevice
 
 ### LLM Integration
 
@@ -175,7 +198,8 @@ squelch/
 ├── engine/
 │   ├── audio/
 │   │   ├── base.py       # Abstract audio capture interface
-│   │   └── windows.py    # WASAPI loopback (Windows)
+│   │   ├── windows.py    # WASAPI loopback (Windows)
+│   │   └── linux.py      # PipeWire loopback (Linux)
 │   ├── types.py          # Shared enums (ChunkType, TranscriptQuality)
 │   ├── transcriber.py    # faster-whisper worker processes
 │   ├── session.py        # Session state management
@@ -188,19 +212,20 @@ squelch/
     └── options.py        # Options modal screen
 ```
 
-## Cross-Platform Support
+## Platform Support
 
-Currently Windows-only (WASAPI loopback). The audio capture is architected for cross-platform support:
-
-- `engine/audio/base.py` — Abstract interface
-- `engine/audio/windows.py` — Windows implementation
-- Linux/macOS — Not yet implemented (contributions welcome!)
+| Platform | Status | Audio Backend |
+|----------|--------|---------------|
+| Windows | ✅ Supported | WASAPI loopback |
+| Linux | ✅ Supported | PipeWire |
+| macOS | ❌ Not implemented | — |
 
 ## Dependencies
 
 | Library | Purpose |
 |---------|---------|
-| [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) | WASAPI loopback audio capture |
+| [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) | WASAPI loopback audio capture (Windows) |
+| [sounddevice](https://python-sounddevice.readthedocs.io/) | Audio capture (Linux) |
 | [faster-whisper](https://github.com/guillaumekln/faster-whisper) | Speech-to-text transcription |
 | [Textual](https://textual.textualize.io/) | Terminal UI framework |
 | [httpx](https://www.python-httpx.org/) | Async HTTP client for Ollama API |
@@ -212,12 +237,9 @@ Currently Windows-only (WASAPI loopback). The audio capture is architected for c
 - [x] **Phase 2**: Textual TUI with live transcript display
 - [x] **Phase 3**: LLM integration (live Q&A via Ollama)
 - [x] **Phase 4**: Summary generation & Markdown export
-- [x] **Phase 5**: Options menu, dual Whisper models, cross-platform prep
+- [x] **Phase 5**: Options menu, dual Whisper models, theming, Linux support
 
 ### Future Ideas
 
-- [ ] Save raw audio as WAV
-- [ ] Theming / color customization
-- [ ] Linux audio capture (PulseAudio/PipeWire)
 - [ ] macOS audio capture (CoreAudio)
-- [ ] Speaker diarization
+- [ ] Save raw audio as WAV (opt-in)
