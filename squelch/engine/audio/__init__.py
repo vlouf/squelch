@@ -15,6 +15,7 @@ _implementation_name = None
 if sys.platform == "win32":
     try:
         from .windows import WindowsAudioCapture
+
         _implementation = WindowsAudioCapture
         _implementation_name = "Windows (WASAPI)"
     except ImportError as e:
@@ -27,6 +28,7 @@ if sys.platform == "win32":
 elif sys.platform == "linux":
     try:
         from .linux import LinuxAudioCapture
+
         _implementation = LinuxAudioCapture
         _implementation_name = "Linux (PipeWire)"
     except ImportError as e:
@@ -44,10 +46,7 @@ elif sys.platform == "darwin":
     )
 
 else:
-    raise NotImplementedError(
-        f"Unsupported platform: {sys.platform}. "
-        f"Supported platforms: win32, linux, darwin"
-    )
+    raise NotImplementedError(f"Unsupported platform: {sys.platform}. " f"Supported platforms: win32, linux, darwin")
 
 
 # Export the selected implementation as AudioCapture

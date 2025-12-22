@@ -46,6 +46,7 @@ Here is the transcript to analyze:
 @dataclass
 class SummaryResult:
     """Result from summary generation."""
+
     success: bool
     content: str  # The markdown content (summary sections or error message)
     error: str | None = None
@@ -73,28 +74,18 @@ class Summarizer:
             SummaryResult with success status and content
         """
         if not transcript.strip():
-            return SummaryResult(
-                success=False,
-                content="",
-                error="No transcript to summarize"
-            )
+            return SummaryResult(success=False, content="", error="No transcript to summarize")
 
         model = self._model or config.llm.model
         if not model:
-            return SummaryResult(
-                success=False,
-                content="",
-                error="No LLM model available"
-            )
+            return SummaryResult(success=False, content="", error="No LLM model available")
 
         try:
             response = await self._client.post(
                 config.llm.endpoint,
                 json={
                     "model": model,
-                    "messages": [
-                        {"role": "user", "content": SUMMARY_PROMPT.format(transcript=transcript)}
-                    ],
+                    "messages": [{"role": "user", "content": SUMMARY_PROMPT.format(transcript=transcript)}],
                     "max_tokens": 2000,
                     "temperature": 0.3,  # Lower temperature for more consistent summaries
                     "stream": False,
@@ -109,22 +100,12 @@ class Summarizer:
 
         except httpx.ConnectError:
             return SummaryResult(
-                success=False,
-                content="",
-                error="Cannot connect to Ollama. Summary generation unavailable."
+                success=False, content="", error="Cannot connect to Ollama. Summary generation unavailable."
             )
         except httpx.HTTPStatusError as e:
-            return SummaryResult(
-                success=False,
-                content="",
-                error=f"HTTP error: {e.response.status_code}"
-            )
+            return SummaryResult(success=False, content="", error=f"HTTP error: {e.response.status_code}")
         except Exception as e:
-            return SummaryResult(
-                success=False,
-                content="",
-                error=str(e)
-            )
+            return SummaryResult(success=False, content="", error=str(e))
 
     async def close(self) -> None:
         """Close the HTTP client."""

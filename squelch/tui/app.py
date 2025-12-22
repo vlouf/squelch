@@ -64,6 +64,7 @@ class EventLog(RichLog):
     def log_event(self, message: str) -> None:
         """Add an event with timestamp."""
         from datetime import datetime
+
         time_str = datetime.now().strftime("%H:%M:%S")
         self.write(f"[dim]{time_str}[/] {message}")
 
@@ -240,7 +241,9 @@ class SquelchApp(App):
             with Vertical(id="left-panel"):
                 with Vertical(id="transcript-container"):
                     yield Static("Transcript", classes="panel-title")
-                    yield TranscriptView(id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True)
+                    yield TranscriptView(
+                        id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True
+                    )
                 yield ResponsePanel(id="response-panel")
             with Vertical(id="event-container"):
                 yield Static("Event Log", classes="panel-title")
@@ -264,14 +267,10 @@ class SquelchApp(App):
         self.log_event(f"  Slow: '{config.whisper.slow_model}'")
 
         self.fast_transcriber = TranscriberWorker(
-            model_size=config.whisper.fast_model,
-            config=config.whisper,
-            name="fast"
+            model_size=config.whisper.fast_model, config=config.whisper, name="fast"
         )
         self.slow_transcriber = TranscriberWorker(
-            model_size=config.whisper.slow_model,
-            config=config.whisper,
-            name="slow"
+            model_size=config.whisper.slow_model, config=config.whisper, name="slow"
         )
         self.fast_transcriber.start()
         self.slow_transcriber.start()
@@ -533,8 +532,7 @@ class SquelchApp(App):
 
         # Check Whisper model changes
         whisper_changed = (
-            config.whisper.fast_model != self._prev_fast_model or
-            config.whisper.slow_model != self._prev_slow_model
+            config.whisper.fast_model != self._prev_fast_model or config.whisper.slow_model != self._prev_slow_model
         )
 
         if whisper_changed:
@@ -548,14 +546,10 @@ class SquelchApp(App):
 
             # Create and start new workers
             self.fast_transcriber = TranscriberWorker(
-                model_size=config.whisper.fast_model,
-                config=config.whisper,
-                name="fast"
+                model_size=config.whisper.fast_model, config=config.whisper, name="fast"
             )
             self.slow_transcriber = TranscriberWorker(
-                model_size=config.whisper.slow_model,
-                config=config.whisper,
-                name="slow"
+                model_size=config.whisper.slow_model, config=config.whisper, name="slow"
             )
             self.fast_transcriber.start()
             self.slow_transcriber.start()

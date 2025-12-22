@@ -103,7 +103,10 @@ Keep responses brief and to the point."""
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": f"Here is the recent transcript:\n\n{transcript}\n\n---\n\nQuestion: {question}"}
+            {
+                "role": "user",
+                "content": f"Here is the recent transcript:\n\n{transcript}\n\n---\n\nQuestion: {question}",
+            },
         ]
 
         try:
@@ -123,10 +126,12 @@ Keep responses brief and to the point."""
             answer = data["choices"][0]["message"]["content"]
 
             # Store in history
-            self._history.append({
-                "question": question,
-                "answer": answer,
-            })
+            self._history.append(
+                {
+                    "question": question,
+                    "answer": answer,
+                }
+            )
 
             return answer
 

@@ -18,6 +18,7 @@ from .types import ChunkType
 @dataclass
 class TranscriptionRequest:
     """A request to transcribe audio."""
+
     audio: np.ndarray
     start_time: float
     end_time: float
@@ -27,6 +28,7 @@ class TranscriptionRequest:
 @dataclass
 class TranscriptionResult:
     """Result from transcription."""
+
     text: str
     start_time: float
     end_time: float
@@ -95,7 +97,9 @@ class TranscriberWorker:
 
         self._process = None
 
-    def submit(self, audio: np.ndarray, start_time: float, end_time: float, chunk_type: ChunkType = ChunkType.FAST) -> None:
+    def submit(
+        self, audio: np.ndarray, start_time: float, end_time: float, chunk_type: ChunkType = ChunkType.FAST
+    ) -> None:
         """Submit audio for transcription."""
         request = TranscriptionRequest(
             audio=audio,
@@ -129,7 +133,9 @@ class TranscriberWorker:
         return not self._output_queue.empty()
 
 
-def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, output_queue: Queue, name: str = "whisper") -> None:
+def _worker_loop(
+    model_size: str, config: WhisperConfig, input_queue: Queue, output_queue: Queue, name: str = "whisper"
+) -> None:
     """
     The actual worker process loop.
 
@@ -168,6 +174,7 @@ def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, out
         if device == "auto":
             try:
                 import torch
+
                 if torch.cuda.is_available():
                     device = "cuda"
                     compute_type = "float16" if compute_type == "auto" else compute_type
@@ -227,11 +234,13 @@ def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, out
             full_text_parts = []
 
             for segment in segments:
-                segment_list.append({
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": segment.text,
-                })
+                segment_list.append(
+                    {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "text": segment.text,
+                    }
+                )
                 full_text_parts.append(segment.text)
 
             full_text = " ".join(full_text_parts).strip()

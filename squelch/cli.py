@@ -45,16 +45,8 @@ async def main():
     print(f"[INFO]   Fast: '{config.whisper.fast_model}'")
     print(f"[INFO]   Slow: '{config.whisper.slow_model}'")
 
-    fast_transcriber = TranscriberWorker(
-        model_size=config.whisper.fast_model,
-        config=config.whisper,
-        name="fast"
-    )
-    slow_transcriber = TranscriberWorker(
-        model_size=config.whisper.slow_model,
-        config=config.whisper,
-        name="slow"
-    )
+    fast_transcriber = TranscriberWorker(model_size=config.whisper.fast_model, config=config.whisper, name="fast")
+    slow_transcriber = TranscriberWorker(model_size=config.whisper.slow_model, config=config.whisper, name="slow")
     fast_transcriber.start()
     slow_transcriber.start()
     print("[INFO] Whisper models loaded.")

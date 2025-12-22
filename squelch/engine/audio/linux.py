@@ -28,12 +28,10 @@ class LinuxAudioCapture(AudioCaptureBase):
         super().__init__(config, on_chunk_ready)
 
         if not shutil.which("pw-loopback"):
-            raise RuntimeError(
-                "pw-loopback not found. Install PipeWire: "
-                "sudo apt install pipewire pipewire-pulse"
-            )
+            raise RuntimeError("pw-loopback not found. Install PipeWire: " "sudo apt install pipewire pipewire-pulse")
 
         import sounddevice as sd
+
         self._sd = sd
 
         self._pw_proc: subprocess.Popen | None = None
@@ -53,18 +51,16 @@ class LinuxAudioCapture(AudioCaptureBase):
             name = d["name"]
             # PulseAudio monitor sources end with .monitor
             # PipeWire loopback nodes contain "loopback" in name
-            is_loopback = (
-                name.endswith(".monitor") or
-                "loopback" in name.lower() or
-                "monitor" in name.lower()
+            is_loopback = name.endswith(".monitor") or "loopback" in name.lower() or "monitor" in name.lower()
+            devices.append(
+                {
+                    "index": i,
+                    "name": name,
+                    "is_loopback": is_loopback,
+                    "max_input_channels": d.get("max_input_channels", 0),
+                    "default_sample_rate": d.get("default_samplerate", 0),
+                }
             )
-            devices.append({
-                "index": i,
-                "name": name,
-                "is_loopback": is_loopback,
-                "max_input_channels": d.get("max_input_channels", 0),
-                "default_sample_rate": d.get("default_samplerate", 0),
-            })
         return devices
 
     @staticmethod
@@ -76,14 +72,12 @@ class LinuxAudioCapture(AudioCaptureBase):
         """Start pw-loopback subprocess."""
         cmd = [
             "pw-loopback",
-            "--capture-props", f"node.name={self._node_name}",
-            "--capture-props", f"node.description={self._node_name}",
+            "--capture-props",
+            f"node.name={self._node_name}",
+            "--capture-props",
+            f"node.description={self._node_name}",
         ]
-        self._pw_proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        self._pw_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # Check if it started successfully
         time.sleep(0.1)
@@ -110,8 +104,7 @@ class LinuxAudioCapture(AudioCaptureBase):
                 return i, d
 
         raise RuntimeError(
-            f"Could not find loopback device '{self._node_name}'. "
-            "Check that PipeWire session is running."
+            f"Could not find loopback device '{self._node_name}'. " "Check that PipeWire session is running."
         )
 
     def start(self) -> None:
@@ -153,7 +146,7 @@ class LinuxAudioCapture(AudioCaptureBase):
             channels=1,
             samplerate=self._device_rate,
             blocksize=frames_per_buffer,
-            dtype='float32',
+            dtype="float32",
             callback=audio_callback,
         )
         self._stream.start()

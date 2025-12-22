@@ -21,6 +21,7 @@ class WindowsAudioCapture(AudioCaptureBase):
         super().__init__(config, on_chunk_ready)
 
         import pyaudiowpatch as pyaudio
+
         self._pyaudio_module = pyaudio
 
         self._pyaudio = pyaudio.PyAudio()
@@ -63,27 +64,29 @@ class WindowsAudioCapture(AudioCaptureBase):
                     return info
 
         raise RuntimeError(
-            "Could not find a WASAPI loopback device. "
-            "Make sure you have an audio output device active."
+            "Could not find a WASAPI loopback device. " "Make sure you have an audio output device active."
         )
 
     @staticmethod
     def list_devices() -> list[dict]:
         """List all available audio devices, highlighting loopback devices."""
         import pyaudiowpatch as pyaudio
+
         p = pyaudio.PyAudio()
         devices = []
 
         for i in range(p.get_device_count()):
             info = p.get_device_info_by_index(i)
-            devices.append({
-                "index": i,
-                "name": info["name"],
-                "is_loopback": info.get("isLoopbackDevice", False),
-                "max_input_channels": info["maxInputChannels"],
-                "max_output_channels": info["maxOutputChannels"],
-                "default_sample_rate": info["defaultSampleRate"],
-            })
+            devices.append(
+                {
+                    "index": i,
+                    "name": info["name"],
+                    "is_loopback": info.get("isLoopbackDevice", False),
+                    "max_input_channels": info["maxInputChannels"],
+                    "max_output_channels": info["maxOutputChannels"],
+                    "default_sample_rate": info["defaultSampleRate"],
+                }
+            )
 
         p.terminate()
         return devices
@@ -95,6 +98,7 @@ class WindowsAudioCapture(AudioCaptureBase):
             return False
         try:
             import pyaudiowpatch
+
             return True
         except ImportError:
             return False
