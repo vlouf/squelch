@@ -5,7 +5,7 @@ Options modal screen for Squelch settings.
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, Grid
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Select, Static, Input
+from textual.widgets import Button, Label, Select, Static, Switch
 from textual.binding import Binding
 
 from ..config import config
@@ -23,7 +23,7 @@ WHISPER_MODELS = [
 ]
 
 
-class OptionsScreen(ModalScreen[bool]):
+class OptionsScreen(ModalScreen[dict | None]):
     """Modal screen for editing options."""
 
     CSS = """
@@ -68,8 +68,8 @@ class OptionsScreen(ModalScreen[bool]):
         width: 1fr;
     }
 
-    .option-row Input {
-        width: 1fr;
+    .option-row Switch {
+        width: auto;
     }
 
     #button-row {
@@ -99,6 +99,7 @@ class OptionsScreen(ModalScreen[bool]):
         current_llm_model: str | None,
         current_fast_whisper: str,
         current_slow_whisper: str,
+        dark_mode: bool,
     ):
         super().__init__()
         self.audio_devices = audio_devices
@@ -107,10 +108,17 @@ class OptionsScreen(ModalScreen[bool]):
         self.current_llm_model = current_llm_model
         self.current_fast_whisper = current_fast_whisper
         self.current_slow_whisper = current_slow_whisper
+        self.dark_mode = dark_mode
 
     def compose(self) -> ComposeResult:
         with Vertical(id="options-container"):
             yield Static("⚙ Options", id="options-title")
+
+            # Appearance section
+            yield Static("Appearance", classes="section-title")
+            with Horizontal(classes="option-row"):
+                yield Label("Dark mode:")
+                yield Switch(value=self.dark_mode, id="dark-mode")
 
             # Audio section
             yield Static("Audio", classes="section-title")
@@ -165,18 +173,18 @@ class OptionsScreen(ModalScreen[bool]):
         if event.button.id == "save-btn":
             self.save_and_close()
         elif event.button.id == "cancel-btn":
-            self.dismiss(False)
+            self.dismiss(None)
 
     def action_cancel(self) -> None:
-        self.dismiss(False)
+        self.dismiss(None)
 
     def save_and_close(self) -> None:
         """Save settings and close."""
-        # Get values from widgets
         try:
             audio_select = self.query_one("#audio-device", Select)
             fast_select = self.query_one("#whisper-fast", Select)
             slow_select = self.query_one("#whisper-slow", Select)
+            dark_switch = self.query_one("#dark-mode", Switch)
 
             # Update config
             if audio_select.value != Select.BLANK:
@@ -196,7 +204,8 @@ class OptionsScreen(ModalScreen[bool]):
             except Exception:
                 pass  # No LLM models available
 
-            self.dismiss(True)
+            # Return result with dark mode setting
+            self.dismiss({"saved": True, "dark_mode": dark_switch.value})
         except Exception as e:
             self.notify(f"Error saving: {e}", severity="error")
 

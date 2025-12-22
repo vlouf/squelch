@@ -7,11 +7,39 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static, Input, RichLog
 from textual.reactive import reactive
+from textual.command import Hit, Hits, Provider
 
 from ..config import config
 from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, TranscriptQuality, LLMProcessor, Summarizer
 from ..export import MarkdownExporter
 from .options import OptionsScreen
+
+
+class SquelchCommands(Provider):
+    """Command palette provider for Squelch actions."""
+
+    async def search(self, query: str) -> Hits:
+        """Search for commands matching the query."""
+        app = self.app
+
+        commands = [
+            ("Toggle Recording", "Start or stop audio recording", "toggle_recording"),
+            ("End Meeting", "End meeting and generate summary", "end_meeting"),
+            ("Show Options", "Open the options menu", "show_options"),
+            ("Toggle Response Panel", "Show or hide the response panel", "toggle_response"),
+            ("Toggle Dark Mode", "Switch between dark and light themes", "toggle_dark_mode"),
+            ("Quit", "Exit the application", "quit"),
+        ]
+
+        query_lower = query.lower()
+        for name, help_text, action in commands:
+            if query_lower in name.lower() or query_lower in help_text.lower():
+                yield Hit(
+                    score=1.0 if query_lower in name.lower() else 0.5,
+                    match_display=name,
+                    command=lambda a=action: app.run_action(a),
+                    help=help_text,
+                )
 
 
 class TranscriptView(RichLog):
@@ -94,7 +122,8 @@ class SquelchApp(App):
     """Main Squelch application."""
 
     TITLE = "Squelch"
-    ENABLE_COMMAND_PALETTE = False  # Disable to save footer space
+    ENABLE_COMMAND_PALETTE = True
+    COMMANDS = App.COMMANDS | {SquelchCommands}  # Include built-in commands + our custom ones
     CSS = """
     #main-container {
         height: 1fr;
@@ -447,6 +476,7 @@ class SquelchApp(App):
         self._prev_fast_model = config.whisper.fast_model
         self._prev_slow_model = config.whisper.slow_model
         self._prev_llm_model = self.llm.model if self.llm else None
+        self._prev_dark_mode = self.theme == "textual-dark"
 
         # Push the options screen
         self.push_screen(
@@ -457,16 +487,25 @@ class SquelchApp(App):
                 current_llm_model=current_llm,
                 current_fast_whisper=config.whisper.fast_model,
                 current_slow_whisper=config.whisper.slow_model,
+                dark_mode=self._prev_dark_mode,
             ),
             self.on_options_closed,
         )
 
-    def on_options_closed(self, saved: bool) -> None:
+    def on_options_closed(self, result: dict | None) -> None:
         """Called when options screen is closed."""
-        if not saved:
+        if result is None:
             return
 
         changes_made = False
+
+        # Check dark mode change
+        new_dark_mode = result.get("dark_mode", self._prev_dark_mode)
+        if new_dark_mode != self._prev_dark_mode:
+            self.theme = "textual-dark" if new_dark_mode else "textual-light"
+            mode = "dark" if new_dark_mode else "light"
+            self.log_event(f"Theme: {mode}")
+            changes_made = True
 
         # Check LLM model change
         if self.llm and config.llm.model and config.llm.model != self._prev_llm_model:
@@ -526,6 +565,15 @@ class SquelchApp(App):
         if self.slow_transcriber:
             self.slow_transcriber.stop()
         self.exit()
+
+    def action_toggle_dark_mode(self) -> None:
+        """Toggle between dark and light themes."""
+        if self.theme == "textual-dark":
+            self.theme = "textual-light"
+            self.log_event("Theme: light")
+        else:
+            self.theme = "textual-dark"
+            self.log_event("Theme: dark")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle ask input submission."""
