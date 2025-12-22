@@ -116,9 +116,10 @@ class Config:
         lines.append(f"context_segments = {self.llm.context_segments}")
         lines.append("")
 
-        # Output section
+        # Output section - use forward slashes for cross-platform compatibility
         lines.append("[output]")
-        lines.append(f'output_dir = "{self.output.output_dir}"')
+        output_path = str(self.output.output_dir).replace("\\", "/")
+        lines.append(f'output_dir = "{output_path}"')
         lines.append("")
 
         # App section
@@ -138,7 +139,8 @@ class Config:
             return config
 
         try:
-            data = tomllib.loads(config_path.read_text())
+            text = config_path.read_text()
+            data = tomllib.loads(text)
 
             # Audio
             if "audio" in data:
@@ -185,9 +187,10 @@ class Config:
                 if "theme" in app:
                     config.app.theme = app["theme"]
 
-        except Exception:
+        except Exception as e:
             # If config is corrupted, use defaults
-            pass
+            import sys
+            print(f"Warning: Failed to load config: {e}", file=sys.stderr)
 
         return config
 
