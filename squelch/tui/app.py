@@ -14,6 +14,7 @@ from ..engine import AudioCapture, ChunkType, TranscriberWorker, Session, Transc
 from ..export import MarkdownExporter
 from .options import OptionsScreen
 from .about import AboutScreen
+from .themes import CUSTOM_THEMES
 
 
 class SquelchCommands(Provider):
@@ -212,6 +213,8 @@ class SquelchApp(App):
         Binding("f2", "show_options", "Options", priority=True),
         Binding("escape", "collapse_response", "Close", show=False, priority=True),
         Binding("q", "quit", "Quit", priority=True),
+        # Secret insight key 🤫
+        Binding("?", "secret_insight", "Insight", show=False, priority=True),
     ]
 
     # Reactive state
@@ -244,6 +247,10 @@ class SquelchApp(App):
 
     def on_mount(self) -> None:
         """Called when app is mounted."""
+        # Register custom themes
+        for theme in CUSTOM_THEMES:
+            self.register_theme(theme)
+
         self.log_event("Squelch ready")
         self.log_event(f"Fast: {config.audio.fast_chunk_duration}s | Slow: {config.audio.slow_chunk_duration}s")
 
@@ -581,6 +588,46 @@ class SquelchApp(App):
         else:
             self.theme = "textual-dark"
             self.log_event("Theme: dark")
+
+    def action_secret_insight(self) -> None:
+        """Secret: Ask LLM for an insightful question or comment to make."""
+        if not self.llm or not self.llm.is_available:
+            self.notify("🤫 Ollama not available", title="Secret")
+            return
+
+        transcript = self.session.get_recent_transcript(last_n=config.llm.context_segments)
+        if not transcript:
+            self.notify("🤫 No transcript yet!", title="Secret")
+            return
+
+        self.log_event("🤫 Generating insight...")
+        self.run_worker(self._generate_insight(transcript))
+
+    async def _generate_insight(self, transcript: str) -> None:
+        """Generate an insightful question or comment."""
+        prompt = """Based on this meeting transcript, suggest ONE insightful question or comment that would:
+- Show I've been paying attention
+- Add value to the discussion
+- Be thought-provoking or help clarify something important
+
+Keep it natural and concise (1-2 sentences max). Just give me the question/comment, nothing else.
+
+Transcript:
+{transcript}"""
+
+        try:
+            answer = await self.llm.ask(prompt.format(transcript=transcript), transcript)
+
+            # Show in response panel
+            try:
+                panel = self.query_one("#response-panel", ResponsePanel)
+                panel.show_response("🤫 What should I say?", answer)
+            except Exception:
+                pass
+
+            self.log_event("🤫 Insight ready!")
+        except Exception as e:
+            self.log_event(f"🤫 Failed: {e}")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle ask input submission."""
