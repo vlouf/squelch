@@ -33,7 +33,7 @@ llm = [
 ]
 
 [project.scripts]
-squelch = "squelch.cli:run"
+squelch = "squelch.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
