@@ -138,6 +138,7 @@ def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, out
     import os
     import sys
     import warnings
+    import io
 
     # Suppress warnings that would clutter the TUI
     warnings.filterwarnings("ignore")
@@ -149,48 +150,57 @@ def _worker_loop(model_size: str, config: WhisperConfig, input_queue: Queue, out
     # Suppress TensorFlow/PyTorch logging
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-    from faster_whisper import WhisperModel
+    # Redirect stdout/stderr to suppress faster-whisper output
+    # This prevents model loading messages from corrupting the TUI
+    devnull = io.StringIO()
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    sys.stdout = devnull
+    sys.stderr = devnull
 
-    # Determine device - try CUDA, fall back to CPU
-    device = config.device
-    compute_type = config.compute_type
+    try:
+        from faster_whisper import WhisperModel
 
-    if device == "auto":
-        try:
-            import torch
-            if torch.cuda.is_available():
-                device = "cuda"
-                compute_type = "float16" if compute_type == "auto" else compute_type
-            else:
+        # Determine device - try CUDA, fall back to CPU
+        device = config.device
+        compute_type = config.compute_type
+
+        if device == "auto":
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    device = "cuda"
+                    compute_type = "float16" if compute_type == "auto" else compute_type
+                else:
+                    device = "cpu"
+                    compute_type = "int8" if compute_type == "auto" else compute_type
+            except ImportError:
                 device = "cpu"
                 compute_type = "int8" if compute_type == "auto" else compute_type
-        except ImportError:
+
+        if compute_type == "auto":
+            compute_type = "int8" if device == "cpu" else "float16"
+
+        # Load the model (this can take a few seconds)
+        try:
+            model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type,
+            )
+        except Exception as e:
+            # If CUDA fails, fall back to CPU
             device = "cpu"
-            compute_type = "int8" if compute_type == "auto" else compute_type
-
-    if compute_type == "auto":
-        compute_type = "int8" if device == "cpu" else "float16"
-
-    # Load the model (this can take a few seconds)
-    try:
-        model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type,
-        )
-        print(f"[Whisper:{name}] Model '{model_size}' loaded on {device} with {compute_type}")
-    except Exception as e:
-        # If CUDA fails, fall back to CPU
-        print(f"[Whisper:{name}] Failed to load on {device}: {e}")
-        print(f"[Whisper:{name}] Falling back to CPU...")
-        device = "cpu"
-        compute_type = "int8"
-        model = WhisperModel(
-            model_size,
-            device=device,
-            compute_type=compute_type,
-        )
-        print(f"[Whisper:{name}] Model '{model_size}' loaded on {device} with {compute_type}")
+            compute_type = "int8"
+            model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type,
+            )
+    finally:
+        # Restore stdout/stderr for any future debugging if needed
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
 
     while True:
         try:
