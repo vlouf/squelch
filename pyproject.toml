@@ -15,10 +15,11 @@ authors = [
 
 dependencies = [
     "numpy>=1.24",
-    "PyAudioWPatch>=0.2.12",
+    "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
     "faster-whisper>=1.0.0",
     "textual>=0.40.0",
     "httpx>=0.25.0",
+    "sounddevice>=0.5.3; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

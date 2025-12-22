@@ -25,11 +25,16 @@ if sys.platform == "win32":
         )
 
 elif sys.platform == "linux":
-    # Linux implementation placeholder
-    raise NotImplementedError(
-        "Linux audio capture is not yet implemented. "
-        "Contributions welcome! See engine/audio/base.py for the interface."
-    )
+    try:
+        from .linux import LinuxAudioCapture
+        _implementation = LinuxAudioCapture
+        _implementation_name = "Linux (PipeWire)"
+    except ImportError as e:
+        raise ImportError(
+            f"Linux audio capture requires sounddevice and PipeWire. "
+            f"Install with: pip install sounddevice && sudo apt install pipewire\n"
+            f"Original error: {e}"
+        )
 
 elif sys.platform == "darwin":
     # macOS implementation placeholder

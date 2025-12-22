@@ -3,9 +3,7 @@ Audio capture using PyAudioWPatch for WASAPI loopback on Windows.
 """
 
 import sys
-import threading
 import numpy as np
-from typing import Callable
 
 from ...config import AudioConfig
 from ..types import ChunkType
@@ -16,12 +14,7 @@ class WindowsAudioCapture(AudioCaptureBase):
     """
     Captures audio from a WASAPI loopback device on Windows.
 
-    Runs in a dedicated thread to ensure isochronous capture
-    without dropping samples.
-
-    Supports dual-pass chunking:
-    - Fast chunks: emitted frequently for low-latency display
-    - Slow chunks: emitted less frequently for higher quality transcription
+    Uses PyAudioWPatch for WASAPI loopback support.
     """
 
     def __init__(self, config: AudioConfig, on_chunk_ready: ChunkCallback | None = None):
@@ -32,25 +25,6 @@ class WindowsAudioCapture(AudioCaptureBase):
 
         self._pyaudio = pyaudio.PyAudio()
         self._stream = None
-        self._thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
-
-        # Fast buffer - drains frequently for low latency
-        self._fast_buffer: list[np.ndarray] = []
-        self._fast_buffer_duration: float = 0.0
-        self._fast_position: float = 0.0
-
-        # Slow buffer - accumulates for higher quality transcription
-        self._slow_buffer: list[np.ndarray] = []
-        self._slow_buffer_duration: float = 0.0
-        self._slow_position: float = 0.0
-
-        # Lock for thread-safe buffer access
-        self._buffer_lock = threading.Lock()
-
-        # Counters
-        self.fast_chunks_emitted: int = 0
-        self.slow_chunks_emitted: int = 0
 
         # Find the device
         self._device_info = self._find_device()
@@ -67,8 +41,6 @@ class WindowsAudioCapture(AudioCaptureBase):
                     if info.get("isLoopbackDevice", False):
                         return info
 
-            # Didn't find a loopback version, try to find the regular device
-            # and get its loopback counterpart
             raise ValueError(
                 f"Could not find loopback device matching '{self.config.device_name}'. "
                 f"Use list_devices() to see available devices."
@@ -87,7 +59,6 @@ class WindowsAudioCapture(AudioCaptureBase):
         for i in range(self._pyaudio.get_device_count()):
             info = self._pyaudio.get_device_info_by_index(i)
             if info.get("isLoopbackDevice", False):
-                # Check if this is the loopback for our target device
                 if info["name"].startswith(default_device["name"].split(" (")[0]):
                     return info
 
@@ -132,22 +103,11 @@ class WindowsAudioCapture(AudioCaptureBase):
         """Start capturing audio."""
         pyaudio = self._pyaudio_module
 
-        if self._thread is not None and self._thread.is_alive():
+        if self._process_thread is not None and self._process_thread.is_alive():
             raise RuntimeError("Already capturing")
 
-        self._stop_event.clear()
-
         # Reset buffers
-        with self._buffer_lock:
-            self._fast_buffer = []
-            self._fast_buffer_duration = 0.0
-            self._fast_position = 0.0
-            self._slow_buffer = []
-            self._slow_buffer_duration = 0.0
-            self._slow_position = 0.0
-
-        self.fast_chunks_emitted = 0
-        self.slow_chunks_emitted = 0
+        self._init_buffers()
 
         # Calculate frames per buffer (smaller = lower latency, but more CPU)
         frames_per_buffer = int(self._device_info["defaultSampleRate"] * 0.1)  # 100ms
@@ -163,13 +123,10 @@ class WindowsAudioCapture(AudioCaptureBase):
         )
 
         self._stream.start_stream()
-        self._thread = threading.Thread(target=self._process_loop, daemon=True)
-        self._thread.start()
+        self._start_process_loop()
 
     def stop(self) -> None:
         """Stop capturing audio."""
-        pyaudio = self._pyaudio_module
-
         self._stop_event.set()
 
         if self._stream is not None:
@@ -183,10 +140,7 @@ class WindowsAudioCapture(AudioCaptureBase):
                 pass
             self._stream = None
 
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-            # Thread is daemon, so it will die when main process exits anyway
-            self._thread = None
+        self._stop_process_loop()
 
     def _audio_callback(self, in_data, frame_count, time_info, status):
         """Called by PyAudio when audio data is available."""
@@ -206,78 +160,12 @@ class WindowsAudioCapture(AudioCaptureBase):
         # Resample if needed (device rate -> 16kHz for Whisper)
         device_rate = int(self._device_info["defaultSampleRate"])
         if device_rate != self.config.sample_rate:
-            audio_data = self._resample(audio_data, device_rate, self.config.sample_rate)
+            audio_data = self.resample(audio_data, device_rate, self.config.sample_rate)
 
-        # Add to both buffers
-        with self._buffer_lock:
-            self._fast_buffer.append(audio_data.copy())
-            self._fast_buffer_duration += len(audio_data) / self.config.sample_rate
-
-            self._slow_buffer.append(audio_data.copy())
-            self._slow_buffer_duration += len(audio_data) / self.config.sample_rate
+        # Add to buffers (handled by base class)
+        self._add_audio(audio_data)
 
         return (None, pyaudio.paContinue)
-
-    def _resample(self, audio: np.ndarray, orig_rate: int, target_rate: int) -> np.ndarray:
-        """Simple resampling using linear interpolation."""
-        if orig_rate == target_rate:
-            return audio
-
-        duration = len(audio) / orig_rate
-        target_length = int(duration * target_rate)
-
-        indices = np.linspace(0, len(audio) - 1, target_length)
-        return np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)
-
-    def _process_loop(self) -> None:
-        """Background thread that checks for complete chunks."""
-        while not self._stop_event.is_set():
-            with self._buffer_lock:
-                # Check fast buffer
-                if self._fast_buffer_duration >= self.config.fast_chunk_duration:
-                    chunk = np.concatenate(self._fast_buffer)
-                    chunk_start = self._fast_position
-                    chunk_end = chunk_start + self._fast_buffer_duration
-
-                    self._fast_buffer = []
-                    self._fast_position = chunk_end
-                    self._fast_buffer_duration = 0.0
-                    self.fast_chunks_emitted += 1
-
-                    if self.on_chunk_ready:
-                        self.on_chunk_ready(chunk, chunk_start, chunk_end, ChunkType.FAST)
-
-                # Check slow buffer
-                if self._slow_buffer_duration >= self.config.slow_chunk_duration:
-                    chunk = np.concatenate(self._slow_buffer)
-                    chunk_start = self._slow_position
-                    chunk_end = chunk_start + self._slow_buffer_duration
-
-                    self._slow_buffer = []
-                    self._slow_position = chunk_end
-                    self._slow_buffer_duration = 0.0
-                    self.slow_chunks_emitted += 1
-
-                    if self.on_chunk_ready:
-                        self.on_chunk_ready(chunk, chunk_start, chunk_end, ChunkType.SLOW)
-
-            # Small sleep to prevent busy-waiting
-            self._stop_event.wait(0.1)
-
-        # Flush remaining buffers on stop
-        with self._buffer_lock:
-            if self._fast_buffer and self.on_chunk_ready:
-                chunk = np.concatenate(self._fast_buffer)
-                chunk_start = self._fast_position
-                chunk_end = chunk_start + self._fast_buffer_duration
-                self.on_chunk_ready(chunk, chunk_start, chunk_end, ChunkType.FAST)
-
-            # Also flush slow buffer as a final refined pass
-            if self._slow_buffer and self.on_chunk_ready:
-                chunk = np.concatenate(self._slow_buffer)
-                chunk_start = self._slow_position
-                chunk_end = chunk_start + self._slow_buffer_duration
-                self.on_chunk_ready(chunk, chunk_start, chunk_end, ChunkType.SLOW)
 
     def terminate(self) -> None:
         """Clean up PyAudio resources."""
