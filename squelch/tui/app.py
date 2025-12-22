@@ -206,13 +206,17 @@ class SquelchApp(App):
     """
 
     BINDINGS = [
-        Binding("f1", "show_about", "Help", priority=True),
+        # 1. Primary Action
         Binding("f5", "toggle_recording", "Start/Stop", priority=True),
         Binding("f10", "end_meeting", "End & Generate", priority=True),
         Binding("f3", "toggle_response", "Response", priority=True),
+        # 2. View Management (What the user sees during/after)
         Binding("f2", "show_options", "Options", priority=True),
-        Binding("escape", "collapse_response", "Close", show=False, priority=True),
+        # 3. Meta/Utility
+        Binding("f1", "show_about", "Help", priority=True),
         Binding("q", "quit", "Quit", priority=True),
+        # Hidden/Contextual
+        Binding("escape", "collapse_response", "Close", show=False, priority=True),
         # Secret insight key 🤫
         Binding("?", "secret_insight", "Insight", show=False, priority=True),
     ]
