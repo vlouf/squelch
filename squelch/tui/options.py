@@ -3,7 +3,7 @@ Options modal screen for Squelch settings.
 """
 
 from textual.app import ComposeResult
-from textual.containers import Vertical, Horizontal, Grid
+from textual.containers import Vertical, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Select, Static, Switch
 from textual.binding import Binding
@@ -40,12 +40,32 @@ class OptionsScreen(ModalScreen[dict | None]):
         padding: 1 2;
     }
 
+    #title-bar {
+        width: 100%;
+        height: 3;
+    }
+
     #options-title {
-        text-align: center;
         text-style: bold;
-        padding-bottom: 1;
-        border-bottom: solid $primary;
-        margin-bottom: 1;
+        content-align: center middle;
+    }
+
+    #close-x {
+        dock: right;
+        min-width: 3;
+        max-width: 3;
+        background: transparent;
+        border: none;
+    }
+
+    #close-x:hover {
+        background: $error;
+        color: $text;
+    }
+
+    #options-content {
+        height: 1fr;
+        min-height: 5;
     }
 
     .section-title {
@@ -77,7 +97,7 @@ class OptionsScreen(ModalScreen[dict | None]):
         padding-top: 1;
         border-top: solid $primary;
         align: center middle;
-        height: auto;
+        height: 5;
         width: 100%;
     }
 
@@ -112,59 +132,62 @@ class OptionsScreen(ModalScreen[dict | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="options-container"):
-            yield Static("⚙ Options", id="options-title")
+            with Horizontal(id="title-bar"):
+                yield Static("⚙ Options", id="options-title")
+                yield Button("✕", id="close-x", variant="default")
 
-            # Appearance section
-            yield Static("Appearance", classes="section-title")
-            with Horizontal(classes="option-row"):
-                yield Label("Dark mode:")
-                yield Switch(value=self.dark_mode, id="dark-mode")
+            with VerticalScroll(id="options-content"):
+                # Appearance section
+                yield Static("Appearance", classes="section-title")
+                with Horizontal(classes="option-row"):
+                    yield Label("Dark mode:")
+                    yield Switch(value=self.dark_mode, id="dark-mode")
 
-            # Audio section
-            yield Static("Audio", classes="section-title")
-            with Horizontal(classes="option-row"):
-                yield Label("Device:")
-                yield Select(
-                    self.audio_devices,
-                    id="audio-device",
-                    value=self.current_audio_device,
-                    allow_blank=False,
-                )
-
-            # Whisper section
-            yield Static("Whisper Models", classes="section-title")
-            with Horizontal(classes="option-row"):
-                yield Label("Fast pass:")
-                yield Select(
-                    WHISPER_MODELS,
-                    id="whisper-fast",
-                    value=self.current_fast_whisper,
-                    allow_blank=False,
-                )
-            with Horizontal(classes="option-row"):
-                yield Label("Slow pass:")
-                yield Select(
-                    WHISPER_MODELS,
-                    id="whisper-slow",
-                    value=self.current_slow_whisper,
-                    allow_blank=False,
-                )
-
-            # LLM section
-            yield Static("LLM (Ollama)", classes="section-title")
-            with Horizontal(classes="option-row"):
-                yield Label("Model:")
-                if self.llm_models:
+                # Audio section
+                yield Static("Audio", classes="section-title")
+                with Horizontal(classes="option-row"):
+                    yield Label("Device:")
                     yield Select(
-                        self.llm_models,
-                        id="llm-model",
-                        value=self.current_llm_model,
+                        self.audio_devices,
+                        id="audio-device",
+                        value=self.current_audio_device,
                         allow_blank=False,
                     )
-                else:
-                    yield Static("No models available", id="llm-model-none")
 
-            # Buttons
+                # Whisper section
+                yield Static("Whisper Models", classes="section-title")
+                with Horizontal(classes="option-row"):
+                    yield Label("Fast pass:")
+                    yield Select(
+                        WHISPER_MODELS,
+                        id="whisper-fast",
+                        value=self.current_fast_whisper,
+                        allow_blank=False,
+                    )
+                with Horizontal(classes="option-row"):
+                    yield Label("Slow pass:")
+                    yield Select(
+                        WHISPER_MODELS,
+                        id="whisper-slow",
+                        value=self.current_slow_whisper,
+                        allow_blank=False,
+                    )
+
+                # LLM section
+                yield Static("LLM (Ollama)", classes="section-title")
+                with Horizontal(classes="option-row"):
+                    yield Label("Model:")
+                    if self.llm_models:
+                        yield Select(
+                            self.llm_models,
+                            id="llm-model",
+                            value=self.current_llm_model,
+                            allow_blank=False,
+                        )
+                    else:
+                        yield Static("No models available", id="llm-model-none")
+
+            # Buttons outside scroll area - always visible
             with Horizontal(id="button-row"):
                 yield Button("Save", variant="primary", id="save-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
@@ -172,7 +195,7 @@ class OptionsScreen(ModalScreen[dict | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-btn":
             self.save_and_close()
-        elif event.button.id == "cancel-btn":
+        elif event.button.id in ("cancel-btn", "close-x"):
             self.dismiss(None)
 
     def action_cancel(self) -> None:
