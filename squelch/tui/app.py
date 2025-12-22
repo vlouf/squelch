@@ -64,7 +64,6 @@ class EventLog(RichLog):
     def log_event(self, message: str) -> None:
         """Add an event with timestamp."""
         from datetime import datetime
-
         time_str = datetime.now().strftime("%H:%M:%S")
         self.write(f"[dim]{time_str}[/] {message}")
 
@@ -241,9 +240,7 @@ class SquelchApp(App):
             with Vertical(id="left-panel"):
                 with Vertical(id="transcript-container"):
                     yield Static("Transcript", classes="panel-title")
-                    yield TranscriptView(
-                        id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True
-                    )
+                    yield TranscriptView(id="transcript-panel", highlight=True, markup=True, wrap=True, auto_scroll=True)
                 yield ResponsePanel(id="response-panel")
             with Vertical(id="event-container"):
                 yield Static("Event Log", classes="panel-title")
@@ -258,6 +255,10 @@ class SquelchApp(App):
         for theme in CUSTOM_THEMES:
             self.register_theme(theme)
 
+        # Apply saved theme
+        if config.app.theme:
+            self.theme = config.app.theme
+
         self.log_event("Squelch ready")
         self.log_event(f"Fast: {config.audio.fast_chunk_duration}s | Slow: {config.audio.slow_chunk_duration}s")
 
@@ -267,10 +268,14 @@ class SquelchApp(App):
         self.log_event(f"  Slow: '{config.whisper.slow_model}'")
 
         self.fast_transcriber = TranscriberWorker(
-            model_size=config.whisper.fast_model, config=config.whisper, name="fast"
+            model_size=config.whisper.fast_model,
+            config=config.whisper,
+            name="fast"
         )
         self.slow_transcriber = TranscriberWorker(
-            model_size=config.whisper.slow_model, config=config.whisper, name="slow"
+            model_size=config.whisper.slow_model,
+            config=config.whisper,
+            name="slow"
         )
         self.fast_transcriber.start()
         self.slow_transcriber.start()
@@ -492,8 +497,10 @@ class SquelchApp(App):
         self._prev_audio_device = config.audio.device_name
         self._prev_fast_model = config.whisper.fast_model
         self._prev_slow_model = config.whisper.slow_model
+        self._prev_language = config.whisper.language
         self._prev_llm_model = self.llm.model if self.llm else None
         self._prev_dark_mode = self.theme == "textual-dark"
+        self._prev_output_dir = str(config.output.output_dir)
 
         # Push the options screen
         self.push_screen(
@@ -504,6 +511,8 @@ class SquelchApp(App):
                 current_llm_model=current_llm,
                 current_fast_whisper=config.whisper.fast_model,
                 current_slow_whisper=config.whisper.slow_model,
+                current_language=config.whisper.language,
+                current_output_dir=str(config.output.output_dir),
                 dark_mode=self._prev_dark_mode,
             ),
             self.on_options_closed,
@@ -520,6 +529,7 @@ class SquelchApp(App):
         new_dark_mode = result.get("dark_mode", self._prev_dark_mode)
         if new_dark_mode != self._prev_dark_mode:
             self.theme = "textual-dark" if new_dark_mode else "textual-light"
+            config.app.theme = self.theme
             mode = "dark" if new_dark_mode else "light"
             self.log_event(f"Theme: {mode}")
             changes_made = True
@@ -530,9 +540,11 @@ class SquelchApp(App):
             self.log_event(f"LLM: {config.llm.model}")
             changes_made = True
 
-        # Check Whisper model changes
+        # Check Whisper model/language changes
         whisper_changed = (
-            config.whisper.fast_model != self._prev_fast_model or config.whisper.slow_model != self._prev_slow_model
+            config.whisper.fast_model != self._prev_fast_model or
+            config.whisper.slow_model != self._prev_slow_model or
+            config.whisper.language != self._prev_language
         )
 
         if whisper_changed:
@@ -546,14 +558,20 @@ class SquelchApp(App):
 
             # Create and start new workers
             self.fast_transcriber = TranscriberWorker(
-                model_size=config.whisper.fast_model, config=config.whisper, name="fast"
+                model_size=config.whisper.fast_model,
+                config=config.whisper,
+                name="fast"
             )
             self.slow_transcriber = TranscriberWorker(
-                model_size=config.whisper.slow_model, config=config.whisper, name="slow"
+                model_size=config.whisper.slow_model,
+                config=config.whisper,
+                name="slow"
             )
             self.fast_transcriber.start()
             self.slow_transcriber.start()
 
+            lang = config.whisper.language or "auto"
+            self.log_event(f"  Language: {lang}")
             self.log_event(f"  Fast: {config.whisper.fast_model}")
             self.log_event(f"  Slow: {config.whisper.slow_model}")
             changes_made = True
@@ -563,9 +581,16 @@ class SquelchApp(App):
             self.log_event(f"Audio: {config.audio.device_name or 'Default'}")
             changes_made = True
 
+        # Check output directory change
+        if str(config.output.output_dir) != self._prev_output_dir:
+            self.log_event(f"Output: {config.output.output_dir}")
+            changes_made = True
+
         if changes_made:
-            self.log_event("✓ Settings applied")
-            self.notify("Settings applied", title="Options")
+            # Save config to disk
+            config.save()
+            self.log_event("✓ Settings saved")
+            self.notify("Settings saved", title="Options")
         else:
             self.notify("No changes", title="Options")
 

@@ -5,7 +5,7 @@ Options modal screen for Squelch settings.
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Select, Static, Switch
+from textual.widgets import Button, Label, Select, Static, Switch, Input
 from textual.binding import Binding
 
 from ..config import config
@@ -20,6 +20,25 @@ WHISPER_MODELS = [
     ("medium", "medium"),
     ("large-v2", "large-v2"),
     ("large-v3", "large-v3"),
+]
+
+# Language options (most common + auto)
+WHISPER_LANGUAGES = [
+    ("Auto-detect", "auto"),
+    ("English", "en"),
+    ("French", "fr"),
+    ("German", "de"),
+    ("Spanish", "es"),
+    ("Italian", "it"),
+    ("Portuguese", "pt"),
+    ("Dutch", "nl"),
+    ("Polish", "pl"),
+    ("Russian", "ru"),
+    ("Chinese", "zh"),
+    ("Japanese", "ja"),
+    ("Korean", "ko"),
+    ("Arabic", "ar"),
+    ("Hindi", "hi"),
 ]
 
 
@@ -92,12 +111,16 @@ class OptionsScreen(ModalScreen[dict | None]):
         width: auto;
     }
 
+    .option-row Input {
+        width: 1fr;
+    }
+
     #button-row {
         margin-top: 1;
         padding-top: 1;
         border-top: solid $primary;
         align: center middle;
-        height: 5;
+        height: 6;
         width: 100%;
     }
 
@@ -119,6 +142,8 @@ class OptionsScreen(ModalScreen[dict | None]):
         current_llm_model: str | None,
         current_fast_whisper: str,
         current_slow_whisper: str,
+        current_language: str | None,
+        current_output_dir: str,
         dark_mode: bool,
     ):
         super().__init__()
@@ -128,6 +153,8 @@ class OptionsScreen(ModalScreen[dict | None]):
         self.current_llm_model = current_llm_model
         self.current_fast_whisper = current_fast_whisper
         self.current_slow_whisper = current_slow_whisper
+        self.current_language = current_language if current_language else "auto"
+        self.current_output_dir = current_output_dir
         self.dark_mode = dark_mode
 
     def compose(self) -> ComposeResult:
@@ -155,9 +182,17 @@ class OptionsScreen(ModalScreen[dict | None]):
                     )
 
                 # Whisper section
-                yield Static("Whisper Models", classes="section-title")
+                yield Static("Whisper", classes="section-title")
                 with Horizontal(classes="option-row"):
-                    yield Label("Fast pass:")
+                    yield Label("Language:")
+                    yield Select(
+                        WHISPER_LANGUAGES,
+                        id="whisper-language",
+                        value=self.current_language,
+                        allow_blank=False,
+                    )
+                with Horizontal(classes="option-row"):
+                    yield Label("Fast model:")
                     yield Select(
                         WHISPER_MODELS,
                         id="whisper-fast",
@@ -165,7 +200,7 @@ class OptionsScreen(ModalScreen[dict | None]):
                         allow_blank=False,
                     )
                 with Horizontal(classes="option-row"):
-                    yield Label("Slow pass:")
+                    yield Label("Slow model:")
                     yield Select(
                         WHISPER_MODELS,
                         id="whisper-slow",
@@ -187,26 +222,66 @@ class OptionsScreen(ModalScreen[dict | None]):
                     else:
                         yield Static("No models available", id="llm-model-none")
 
+                # Output section
+                yield Static("Output", classes="section-title")
+                with Horizontal(classes="option-row"):
+                    yield Label("Directory:")
+                    yield Input(value=self.current_output_dir, id="output-dir")
+
             # Buttons outside scroll area - always visible
             with Horizontal(id="button-row"):
                 yield Button("Save", variant="primary", id="save-btn")
+                yield Button("Reset", variant="warning", id="reset-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-btn":
             self.save_and_close()
+        elif event.button.id == "reset-btn":
+            self.reset_to_defaults()
         elif event.button.id in ("cancel-btn", "close-x"):
             self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
 
+    def reset_to_defaults(self) -> None:
+        """Reset all options to default values."""
+        try:
+            # Reset UI widgets to defaults
+            self.query_one("#dark-mode", Switch).value = True
+            self.query_one("#audio-device", Select).value = "__default__"
+            self.query_one("#whisper-language", Select).value = "en"
+            self.query_one("#whisper-fast", Select).value = "base"
+            self.query_one("#whisper-slow", Select).value = "small"
+
+            # Reset output dir
+            from pathlib import Path
+            default_output = str(Path.home() / "Documents" / "Squelch")
+            self.query_one("#output-dir", Input).value = default_output
+
+            # Reset LLM if available
+            try:
+                llm_select = self.query_one("#llm-model", Select)
+                if self.llm_models:
+                    llm_select.value = self.llm_models[0][1]  # First available
+            except Exception:
+                pass
+
+            self.notify("Reset to defaults (click Save to apply)", title="Options")
+        except Exception as e:
+            self.notify(f"Error resetting: {e}", severity="error")
+
     def save_and_close(self) -> None:
         """Save settings and close."""
+        from pathlib import Path
+
         try:
             audio_select = self.query_one("#audio-device", Select)
             fast_select = self.query_one("#whisper-fast", Select)
             slow_select = self.query_one("#whisper-slow", Select)
+            language_select = self.query_one("#whisper-language", Select)
+            output_input = self.query_one("#output-dir", Input)
             dark_switch = self.query_one("#dark-mode", Switch)
 
             # Update config
@@ -218,6 +293,13 @@ class OptionsScreen(ModalScreen[dict | None]):
 
             if slow_select.value != Select.BLANK:
                 config.whisper.slow_model = slow_select.value
+
+            if language_select.value != Select.BLANK:
+                config.whisper.language = None if language_select.value == "auto" else language_select.value
+
+            # Output directory
+            if output_input.value.strip():
+                config.output.output_dir = Path(output_input.value.strip())
 
             # LLM model (if available)
             try:
