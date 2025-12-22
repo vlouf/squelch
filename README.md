@@ -7,11 +7,12 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 - 🎤 **Live audio capture** from system audio (Windows WASAPI, Linux PipeWire)
 - 📝 **Real-time transcription** using faster-whisper
 - 🔄 **Dual-pass transcription** — fast model for low latency, better model for accuracy
-- 🤖 **AI-powered Q&A** during meetings via Ollama (auto-detects available models)
+- 🤖 **AI-powered Q&A** during meetings (local via Ollama, or cloud via OpenAI/Claude/Gemini)
 - 📋 **Automatic summary generation** with key themes and action items
 - 📄 **Markdown export** with collapsible full transcript
 - ⚙️ **Options menu** — change settings without editing config files
-- 🎨 **Theming** — Command palette with multiple built-in themes
+- 🎨 **Theming** — multiple built-in themes via command palette
+- 💾 **Persistent config** — settings saved automatically
 - 💻 **Terminal UI** using Textual
 
 ## Screenshots
@@ -38,29 +39,30 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 └───────────────────────────────────────────────────────┘
 ```
 
+## Platform Support
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Windows | ✅ Supported | WASAPI loopback |
+| Linux | ✅ Supported | Requires PipeWire |
+| macOS | ❌ Not yet | Contributions welcome! |
+
 ## Installation
 
 ### Prerequisites
 
-1. **Python 3.11+**
+**Python 3.11+** is required.
 
-2. **Ollama** (for LLM features): Install from [ollama.ai](https://ollama.ai), then pull any model:
-   ```bash
-   ollama pull llama3.1:8b
-   ollama serve
-   ```
-   Squelch auto-detects available models — use whichever you prefer.
+**Windows** — No additional setup needed.
 
-3. **CUDA** (optional): For GPU-accelerated transcription, install CUDA toolkit and cuDNN.
+**Linux** — Install PipeWire:
+```bash
+# Debian/Ubuntu
+sudo apt install pipewire pipewire-pulse
 
-4. **Linux only**: PipeWire is required for audio capture:
-   ```bash
-   # Debian/Ubuntu
-   sudo apt install pipewire pipewire-pulse
-   
-   # Fedora
-   sudo dnf install pipewire pipewire-pulseaudio
-   ```
+# Fedora
+sudo dnf install pipewire pipewire-pulseaudio
+```
 
 ### Install Squelch
 
@@ -69,177 +71,140 @@ Meeting transcription tool with live transcription and AI-powered summaries.
 git clone https://github.com/vlouf/squelch.git
 cd squelch
 
-# Create a virtual environment
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or: venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux
+venv\Scripts\activate     # Windows
 
-# Install in development mode
-pip install -e ".[dev,llm]"
+# Install
+pip install -e .
+
+# Optional: install cloud LLM support
+pip install -e ".[cloud]"
+```
+
+### LLM Setup (Optional)
+
+For AI-powered Q&A and summaries, you need an LLM provider:
+
+**Option A: Ollama (Local, Free)**
+```bash
+# Install from https://ollama.ai, then:
+ollama pull llama3.1:8b
+ollama serve
+```
+
+**Option B: Cloud Providers**
+
+Install cloud support and set your API key:
+```bash
+pip install -e ".[cloud]"
+
+# Then set ONE of these:
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+export GEMINI_API_KEY=...
 ```
 
 ## Usage
 
-### Launch the TUI
+### Launch
 
 ```bash
-python -m squelch
+squelch
 ```
 
 ### Keybindings
 
 | Key | Action |
 |-----|--------|
-| F5 | Start/Stop recording |
-| F10 | End meeting & generate summary |
-| F3 | Toggle response panel |
-| F2 | Options menu |
-| Ctrl+P | Command palette (themes, commands) |
-| Escape | Close response panel |
-| Q | Quit (when not typing) |
-
-### Command Palette (Ctrl+P)
-
-Press `Ctrl+P` to open the command palette. From here you can:
-
-- **Change themes** — Type "theme" to see all available themes (nord, gruvbox, dracula, monokai, tokyo-night, etc.)
-- **Run commands** — Toggle recording, end meeting, open options, and more
+| **F5** | Start/Stop recording |
+| **F10** | End meeting & generate summary |
+| **F3** | Toggle response panel |
+| **F2** | Options menu |
+| **F1** | Help |
+| **Ctrl+P** | Command palette |
+| **Q** | Quit |
 
 ### Workflow
 
-1. **Start recording** (F5) — audio capture begins
-2. **Watch live transcript** — fast pass appears in cyan, refined in green with ✓
-3. **Ask questions** — type in the Ask input, press Enter for LLM response
-4. **End meeting** (F10) — generates summary and exports to Markdown
-5. **Review** — file opens automatically in your default Markdown viewer
+1. **F5** — Start recording (captures system audio)
+2. Watch the live transcript appear
+3. Type questions in the input box for AI responses
+4. **F10** — End meeting, generate summary, export to Markdown
+5. Review the exported file (opens automatically)
 
-### Options Menu (F2)
+### Options (F2)
 
-Press F2 (when not recording) to open the options menu:
+Configure without editing files:
 
-- **Dark mode** — Toggle between dark and light themes
-- **Audio Device** — select which loopback device to capture from
-- **Whisper Fast Model** — model for quick transcription (tiny, base, small, medium, large)
-- **Whisper Slow Model** — model for refined transcription
-- **LLM Model** — select from available Ollama models
+- **Theme** — Dark/light mode
+- **Audio device** — Select loopback source
+- **Whisper models** — Choose speed vs accuracy tradeoff
+- **Language** — Set transcription language
+- **LLM provider** — Ollama (local) or Cloud
+- **Output directory** — Where to save meeting notes
 
-Settings are applied immediately on save. Whisper models are reloaded automatically.
+Settings persist between sessions.
+
+### Command Palette (Ctrl+P)
+
+Quick access to themes and commands. Type to search:
+- `theme` — Browse all themes (nord, gruvbox, dracula, etc.)
+- `toggle` — Recording, response panel, dark mode
+- `options` — Open settings
 
 ### Output
 
-Meeting notes are saved to `~/Documents/Squelch/` with filenames like:
+Meeting notes are saved as Markdown:
 ```
-2025-12-22_1430_meeting.md
+~/Documents/Squelch/2025-12-22_1430_meeting.md
 ```
 
-The Markdown file includes:
-- Meeting duration and word count
-- AI-generated summary with key themes
-- Action items (if any identified)
-- Full transcript in a collapsible section
-
-### Legacy CLI
-
-For testing without the TUI:
-
-```bash
-python -m squelch --cli
-```
+Each file includes:
+- Duration and word count
+- AI-generated summary
+- Key themes and action items
+- Full transcript (collapsible)
 
 ## Configuration
 
-Settings can be changed via the Options menu (F2) or by editing `squelch/config.py`:
+Settings are stored in:
+- **Windows**: `%APPDATA%\Squelch\config.toml`
+- **Linux**: `~/.config/squelch/config.toml`
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `audio.device_name` | None (default device) | Audio loopback device |
-| `audio.fast_chunk_duration` | 6.0s | Fast pass chunk size |
-| `audio.slow_chunk_duration` | 60.0s | Slow pass chunk size |
-| `whisper.fast_model` | "base" | Whisper model for fast pass |
-| `whisper.slow_model` | "small" | Whisper model for slow pass |
-| `llm.model` | None (auto-detect) | Ollama model for Q&A and summaries |
-| `llm.context_segments` | 20 | How many segments to include in Q&A context |
-| `output.output_dir` | ~/Documents/Squelch | Where to save meeting notes |
+You can edit this file directly or use the Options menu (F2).
 
-## How It Works
+## GPU Acceleration (Optional)
 
-### Dual-Pass Transcription
+For faster transcription, install CUDA:
 
-Squelch uses two parallel transcription workers with different models:
+1. Install [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)
+2. Install [cuDNN](https://developer.nvidia.com/cudnn)
+3. Squelch will automatically use GPU when available
 
-1. **Fast pass** (6-second chunks, `base` model): Low latency, displayed immediately in cyan
-2. **Slow pass** (60-second chunks, `small` model): Higher accuracy, replaces fast pass segments, displayed in green with ✓
+## Troubleshooting
 
-This gives you quick feedback while maintaining transcript quality.
+**No audio being captured?**
+- Check Options (F2) → Audio Device
+- Make sure audio is playing through the selected device
 
-### Audio Capture
+**Ollama not detected?**
+- Run `ollama serve` in a terminal
+- Check that a model is pulled: `ollama list`
 
-Squelch captures system audio via loopback — it records whatever is playing through your speakers/headphones. This works with any application (Teams, Zoom, YouTube, etc.) without needing virtual audio cables.
+**Transcription is slow?**
+- Use smaller Whisper models in Options
+- Enable GPU acceleration (see above)
 
-- **Windows**: WASAPI loopback via PyAudioWPatch
-- **Linux**: PipeWire loopback via sounddevice
+**Cloud LLM not working?**
+- Verify API key is set: `echo $OPENAI_API_KEY`
+- Check the model name is correct
 
-### LLM Integration
+## Contributing
 
-Squelch uses Ollama for local LLM inference:
-- **Auto-detection**: Automatically finds and uses available Ollama models
-- **Live Q&A**: Ask questions about the transcript mid-meeting
-- **Summary generation**: Automatic key themes and action item extraction
-- **Privacy**: All processing happens locally on your machine
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
-## Project Structure
+## Acknowledgments
 
-```
-squelch/
-├── __init__.py
-├── __main__.py           # Entry point (TUI or --cli)
-├── cli.py                # Legacy test CLI
-├── config.py             # Configuration
-├── engine/
-│   ├── audio/
-│   │   ├── base.py       # Abstract audio capture interface
-│   │   ├── windows.py    # WASAPI loopback (Windows)
-│   │   └── linux.py      # PipeWire loopback (Linux)
-│   ├── types.py          # Shared enums (ChunkType, TranscriptQuality)
-│   ├── transcriber.py    # faster-whisper worker processes
-│   ├── session.py        # Session state management
-│   ├── llm.py            # LLM processor for Q&A
-│   └── summarizer.py     # Meeting summary generation
-├── export/
-│   └── markdown.py       # Markdown file generation
-└── tui/
-    ├── app.py            # Textual terminal UI
-    └── options.py        # Options modal screen
-```
-
-## Platform Support
-
-| Platform | Status | Audio Backend |
-|----------|--------|---------------|
-| Windows | ✅ Supported | WASAPI loopback |
-| Linux | ✅ Supported | PipeWire |
-| macOS | ❌ Not implemented | — |
-
-## Dependencies
-
-| Library | Purpose |
-|---------|---------|
-| [PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch) | WASAPI loopback audio capture (Windows) |
-| [sounddevice](https://python-sounddevice.readthedocs.io/) | Audio capture (Linux) |
-| [faster-whisper](https://github.com/guillaumekln/faster-whisper) | Speech-to-text transcription |
-| [Textual](https://textual.textualize.io/) | Terminal UI framework |
-| [httpx](https://www.python-httpx.org/) | Async HTTP client for Ollama API |
-| [NumPy](https://numpy.org/) | Audio buffer manipulation |
-
-## Development Roadmap
-
-- [x] **Phase 1**: Audio capture & transcription engine
-- [x] **Phase 2**: Textual TUI with live transcript display
-- [x] **Phase 3**: LLM integration (live Q&A via Ollama)
-- [x] **Phase 4**: Summary generation & Markdown export
-- [x] **Phase 5**: Options menu, dual Whisper models, theming, Linux support
-
-### Future Ideas
-
-- [ ] macOS audio capture (CoreAudio)
-- [ ] Save raw audio as WAV (opt-in)
+Built with [faster-whisper](https://github.com/guillaumekln/faster-whisper), [Textual](https://textual.textualize.io/), and [Ollama](https://ollama.ai).
