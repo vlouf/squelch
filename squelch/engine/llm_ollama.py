@@ -133,10 +133,15 @@ Keep responses brief and to the point."""
         except httpx.ConnectError:
             self._available = False
             return "Error: Cannot connect to Ollama. Is it running? (ollama serve)"
+        except httpx.TimeoutException:
+            return "Error: Request timed out. Model may be too slow or overloaded."
         except httpx.HTTPStatusError as e:
-            return f"Error: {e.response.status_code} - {e.response.text}"
+            return f"Error: HTTP {e.response.status_code} - {e.response.text[:200]}"
+        except KeyError as e:
+            return f"Error: Unexpected response format (missing {e})"
         except Exception as e:
-            return f"Error: {str(e)}"
+            error_msg = str(e) if str(e) else type(e).__name__
+            return f"Error: {error_msg}"
 
     @property
     def history(self) -> list[dict]:

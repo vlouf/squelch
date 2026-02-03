@@ -1,14 +1,17 @@
 """
-Audio capture using PipeWire/PulseAudio on Linux.
+Audio capture on Linux using PulseAudio/PipeWire monitor sources.
 
-Uses pw-loopback to create a loopback node, then captures from it via sounddevice.
+On Linux, capturing system audio requires using a "monitor" source.
+We use parec (PulseAudio recording) to capture from monitor sources,
+as sounddevice/PortAudio often doesn't see PipeWire sources properly.
 """
 
 import os
 import sys
-import time
-import shutil
 import subprocess
+import threading
+import shutil
+from typing import Callable
 
 import numpy as np
 
@@ -16,165 +19,229 @@ from ...config import AudioConfig
 from .base import AudioCaptureBase, ChunkCallback
 
 
+def _get_pulseaudio_sources() -> list[dict]:
+    """Get all sources from PulseAudio/PipeWire via pactl."""
+    sources = []
+
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "sources", "short"],
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        if result.returncode != 0:
+            return sources
+
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                index = parts[0]
+                name = parts[1]
+                is_monitor = ".monitor" in name.lower()
+                sources.append({
+                    "index": index,
+                    "name": name,
+                    "is_monitor": is_monitor,
+                })
+    except Exception:
+        pass
+
+    return sources
+
+
+def _get_default_sink_monitor() -> str | None:
+    """Get the monitor source for the default sink."""
+    try:
+        # Get default sink name
+        result = subprocess.run(
+            ["pactl", "get-default-sink"],
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        if result.returncode != 0:
+            return None
+
+        default_sink = result.stdout.strip()
+        if default_sink:
+            return f"{default_sink}.monitor"
+    except Exception:
+        pass
+
+    return None
+
+
 class LinuxAudioCapture(AudioCaptureBase):
     """
-    Captures audio from PipeWire/PulseAudio on Linux.
+    Captures audio on Linux using parec (PulseAudio/PipeWire).
 
-    Creates a pw-loopback node to capture system audio output,
-    then records from it using sounddevice.
+    Uses parec to capture from monitor sources, which reliably
+    captures system audio output.
     """
 
     def __init__(self, config: AudioConfig, on_chunk_ready: ChunkCallback | None = None):
         super().__init__(config, on_chunk_ready)
 
-        if not shutil.which("pw-loopback"):
-            raise RuntimeError("pw-loopback not found. Install PipeWire: " "sudo apt install pipewire pipewire-pulse")
+        # Check for parec
+        if not shutil.which("parec"):
+            raise RuntimeError(
+                "parec not found. Install PulseAudio tools: "
+                "sudo apt install pulseaudio-utils"
+            )
 
-        import sounddevice as sd
-
-        self._sd = sd
-
-        self._pw_proc: subprocess.Popen | None = None
-        self._stream = None
-        self._device_rate: int = 0
-
-        # Unique node name to avoid conflicts with other instances
-        self._node_name = f"squelch_loopback_{os.getpid()}"
+        self._parec_proc: subprocess.Popen | None = None
+        self._reader_thread: threading.Thread | None = None
+        self._source_name: str | None = None
 
     @staticmethod
     def list_devices() -> list[dict]:
-        """List available audio devices."""
-        import sounddevice as sd
+        """List available audio sources, prioritizing monitors."""
+        sources = _get_pulseaudio_sources()
 
         devices = []
-        for i, d in enumerate(sd.query_devices()):
-            name = d["name"]
-            # PulseAudio monitor sources end with .monitor
-            # PipeWire loopback nodes contain "loopback" in name
-            is_loopback = name.endswith(".monitor") or "loopback" in name.lower() or "monitor" in name.lower()
-            devices.append(
-                {
-                    "index": i,
-                    "name": name,
-                    "is_loopback": is_loopback,
-                    "max_input_channels": d.get("max_input_channels", 0),
-                    "default_sample_rate": d.get("default_samplerate", 0),
-                }
-            )
+        for src in sources:
+            devices.append({
+                "index": src["index"],
+                "name": src["name"],
+                "is_loopback": src["is_monitor"],
+                "max_input_channels": 2,
+                "default_sample_rate": 48000,
+            })
+
         return devices
 
     @staticmethod
     def is_available() -> bool:
-        """Check if PipeWire loopback is available."""
-        return sys.platform == "linux" and shutil.which("pw-loopback") is not None
+        """Check if Linux audio capture is available."""
+        if sys.platform != "linux":
+            return False
+        return shutil.which("parec") is not None
 
-    def _start_pw_loopback(self) -> None:
-        """Start pw-loopback subprocess."""
-        cmd = [
-            "pw-loopback",
-            "--capture-props",
-            f"node.name={self._node_name}",
-            "--capture-props",
-            f"node.description={self._node_name}",
-        ]
-        self._pw_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    def _find_monitor_source(self) -> str:
+        """Find the best monitor source for capturing."""
+        sources = _get_pulseaudio_sources()
 
-        # Check if it started successfully
-        time.sleep(0.1)
-        if self._pw_proc.poll() is not None:
-            raise RuntimeError(
-                f"pw-loopback failed to start (exit code {self._pw_proc.returncode}). "
-                "Check that PipeWire is running."
-            )
+        # If a specific device is configured, use it
+        if self.config.device_name:
+            for src in sources:
+                if self.config.device_name.lower() in src["name"].lower():
+                    return src["name"]
 
-    def _find_loopback_device(self) -> tuple[int, dict]:
-        """Find the pw-loopback device we created."""
-        deadline = time.time() + 3.0
+        # Try to get the default sink's monitor
+        default_monitor = _get_default_sink_monitor()
+        if default_monitor:
+            for src in sources:
+                if src["name"] == default_monitor:
+                    return src["name"]
 
-        while time.time() < deadline:
-            for i, d in enumerate(self._sd.query_devices()):
-                # Look for our specific node name
-                if self._node_name.lower() in d["name"].lower():
-                    return i, d
-            time.sleep(0.1)
-
-        # Fallback: look for any loopback device
-        for i, d in enumerate(self._sd.query_devices()):
-            if "loopback" in d["name"].lower():
-                return i, d
+        # Fall back to any monitor source
+        for src in sources:
+            if src["is_monitor"]:
+                return src["name"]
 
         raise RuntimeError(
-            f"Could not find loopback device '{self._node_name}'. " "Check that PipeWire session is running."
+            "No monitor source found. Make sure PulseAudio/PipeWire is running. "
+            "Check available sources with: pactl list sources short"
         )
+
+    def _read_audio_loop(self) -> None:
+        """Read audio data from parec process."""
+        if self._parec_proc is None:
+            return
+
+        # parec outputs raw audio - we read in chunks
+        # At 48kHz, 16-bit stereo: 48000 * 2 * 2 = 192000 bytes/sec
+        # Read 100ms at a time: 19200 bytes
+        chunk_bytes = 19200
+
+        try:
+            while not self._stop_event.is_set():
+                data = self._parec_proc.stdout.read(chunk_bytes)
+                if not data:
+                    break
+
+                # Convert bytes to numpy array (signed 16-bit little-endian stereo)
+                audio_int16 = np.frombuffer(data, dtype=np.int16)
+
+                # Reshape to stereo and convert to mono float32
+                if len(audio_int16) >= 2:
+                    audio_stereo = audio_int16.reshape(-1, 2)
+                    audio_mono = audio_stereo.mean(axis=1)
+                else:
+                    audio_mono = audio_int16.astype(np.float32)
+
+                # Normalize to [-1, 1]
+                audio = (audio_mono / 32768.0).astype(np.float32)
+
+                # Resample from 48kHz to 16kHz
+                if self.config.sample_rate != 48000:
+                    audio = self.resample(audio, 48000, self.config.sample_rate)
+
+                # Add to buffers
+                self._add_audio(audio)
+
+        except Exception as e:
+            if not self._stop_event.is_set():
+                print(f"[AudioCapture:Linux] Read error: {e}")
 
     def start(self) -> None:
         """Start capturing audio."""
-        if self._process_thread is not None and self._process_thread.is_alive():
+        if self._parec_proc is not None:
             raise RuntimeError("Already capturing")
 
         # Reset buffers
         self._init_buffers()
 
-        # Start pw-loopback and find the device
-        self._start_pw_loopback()
-        dev_index, dev_info = self._find_loopback_device()
+        # Find a monitor source
+        self._source_name = self._find_monitor_source()
+        print(f"[AudioCapture:Linux] Using source: {self._source_name}")
 
-        self._device_rate = int(dev_info["default_samplerate"]) or 48000
-        frames_per_buffer = int(self._device_rate * 0.1)  # 100ms
+        # Start parec process
+        # Format: signed 16-bit little-endian, stereo, 48kHz
+        cmd = [
+            "parec",
+            "--device", self._source_name,
+            "--format", "s16le",
+            "--channels", "2",
+            "--rate", "48000",
+            "--raw",
+        ]
 
-        # Create the audio callback
-        def audio_callback(indata, frames, time_info, status):
-            if status:
-                print(f"[AudioCapture:Linux] {status}")
-
-            # Convert to mono float32
-            if indata.ndim > 1:
-                audio = indata.mean(axis=1).astype(np.float32)
-            else:
-                audio = indata.flatten().astype(np.float32)
-
-            # Resample if needed
-            if self._device_rate != self.config.sample_rate:
-                audio = self.resample(audio, self._device_rate, self.config.sample_rate)
-
-            # Add to buffers (handled by base class)
-            self._add_audio(audio)
-
-        # Open the stream
-        self._stream = self._sd.InputStream(
-            device=dev_index,
-            channels=1,
-            samplerate=self._device_rate,
-            blocksize=frames_per_buffer,
-            dtype="float32",
-            callback=audio_callback,
+        self._parec_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
-        self._stream.start()
+
+        # Start reader thread
+        self._reader_thread = threading.Thread(target=self._read_audio_loop, daemon=True)
+        self._reader_thread.start()
+
+        # Start the chunk processing loop
         self._start_process_loop()
 
     def stop(self) -> None:
         """Stop capturing audio."""
         self._stop_event.set()
 
-        # Stop the audio stream
-        if self._stream is not None:
+        # Stop parec process
+        if self._parec_proc is not None:
             try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
-
-        # Kill the pw-loopback process
-        if self._pw_proc is not None:
-            try:
-                self._pw_proc.terminate()
-                self._pw_proc.wait(timeout=1.0)
+                self._parec_proc.terminate()
+                self._parec_proc.wait(timeout=1.0)
             except subprocess.TimeoutExpired:
-                self._pw_proc.kill()
-                self._pw_proc.wait()
+                self._parec_proc.kill()
+                self._parec_proc.wait()
             except Exception:
                 pass
-            self._pw_proc = None
+            self._parec_proc = None
+
+        # Wait for reader thread
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=1.0)
+            self._reader_thread = None
 
         self._stop_process_loop()
