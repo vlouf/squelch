@@ -208,3 +208,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 ## Acknowledgments
 
 Built with [faster-whisper](https://github.com/guillaumekln/faster-whisper), [Textual](https://textual.textualize.io/), and [Ollama](https://ollama.ai).
+
+Developed with the assistance of Claude (Anthropic).
